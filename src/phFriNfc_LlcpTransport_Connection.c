@@ -54,6 +54,7 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
    phNfc_sData_t                     sFrmrBuffer;
    uint8_t                           index;
    uint8_t                           socketFound = FALSE;
+   NFCSTATUS                         result;
 
    /* Get Send CB context */
    psTransport = (phFriNfc_LlcpTransport_t*)pContext;
@@ -75,7 +76,7 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
          /* Send Pending */
          psTransport->bSendPending = TRUE;
 
-         status =  phFriNfc_Llcp_Send(psTransport->pLlcp,
+         result =  phFriNfc_Llcp_Send(psTransport->pLlcp,
                                       &psTransport->sLlcpHeader,
                                       NULL,
                                       &sFrmrBuffer,
@@ -89,7 +90,7 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
          psTransport->bDmPending = FALSE;
 
          /* Send DM pending */
-         status = phFriNfc_Llcp_Send_DisconnectMode_Frame(psTransport,
+         result = phFriNfc_Llcp_Send_DisconnectMode_Frame(psTransport,
                                                           psTransport->DmInfoBuffer[0],
                                                           psTransport->DmInfoBuffer[1],
                                                           psTransport->DmInfoBuffer[2]);
@@ -105,6 +106,8 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
             psTransport->pSocketTable[psTransport->socketIndex].eSocket_State  = phFriNfc_LlcpTransportSocket_eSocketConnected;
             /* Call the Accept Callback */
             psTransport->pSocketTable[psTransport->socketIndex].pfSocketAccept_Cb(psTransport->pSocketTable[psTransport->socketIndex].pAcceptContext,status);
+            psTransport->pSocketTable[psTransport->socketIndex].pfSocketAccept_Cb = NULL;
+            psTransport->pSocketTable[psTransport->socketIndex].pAcceptContext = NULL;
          }break;
 
       case phFriNfc_LlcpTransportSocket_eSocketRejected:
@@ -113,21 +116,19 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
             psTempLlcpSocket = psTransport->pSocketTable[psTransport->socketIndex];
 
             /* Reset the socket  and set the socket state to default */
-            status = phFriNfc_LlcpTransport_Close(&psTransport->pSocketTable[psTransport->socketIndex]);
+            result = phFriNfc_LlcpTransport_Close(&psTransport->pSocketTable[psTransport->socketIndex]);
 
             /* Call the Reject Callback */
             psTempLlcpSocket.pfSocketSend_Cb(psTempLlcpSocket.pRejectContext,status);
+            psTempLlcpSocket.pfSocketSend_Cb = NULL;
          }break;
 
       case phFriNfc_LlcpTransportSocket_eSocketConnected:
          {
-            if(psTransport->pSocketTable[psTransport->socketIndex].sLlcpHeader.ptype == PHFRINFC_LLCP_PTYPE_I && psTransport->pSocketTable[psTransport->socketIndex].pfSocketSend_Cb != NULL)
+            if(!psTransport->pSocketTable[psTransport->socketIndex].bSocketSendPending && psTransport->pSocketTable[psTransport->socketIndex].pfSocketSend_Cb != NULL)
             {
                psTransport->pSocketTable[psTransport->socketIndex].pfSocketSend_Cb(psTransport->pSocketTable[psTransport->socketIndex].pSendContext,status);
-               if(psTransport->pSocketTable[psTransport->socketIndex].bSocketSendPending != TRUE)
-               {
-                  psTransport->pSocketTable[psTransport->socketIndex].pfSocketSend_Cb = NULL;
-               }
+               psTransport->pSocketTable[psTransport->socketIndex].pfSocketSend_Cb = NULL;
             }
          }break;
       }
@@ -180,7 +181,7 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
          if(psLocalLlcpSocket->bSocketSendPending == TRUE)
          {
             /* Test the RW window */
-            if(psLocalLlcpSocket->socket_VS != (psLocalLlcpSocket->socket_VSA + psLocalLlcpSocket->remoteRW))
+            if(CHECK_SEND_RW(psLocalLlcpSocket))
             {
                /* Set the Header */
                psLocalLlcpSocket->sLlcpHeader.dsap   = psLocalLlcpSocket->socket_dSap;
@@ -198,7 +199,7 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
                psTransport->socketIndex = psLocalLlcpSocket->index ;
 
                /* Send I_PDU */
-               status =  phFriNfc_Llcp_Send(psTransport->pLlcp,
+               result =  phFriNfc_Llcp_Send(psTransport->pLlcp,
                                             &psLocalLlcpSocket->sLlcpHeader,
                                             &psLocalLlcpSocket->sSequence,
                                             &psLocalLlcpSocket->sSocketSendBuffer,
@@ -219,7 +220,7 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
             psLocalLlcpSocket->bSocketRRPending = FALSE;
 
             /* Send RR Frame */
-            status = phFriNfc_Llcp_Send_ReceiveReady_Frame(psLocalLlcpSocket);
+            result = phFriNfc_Llcp_Send_ReceiveReady_Frame(psLocalLlcpSocket);
          }
 
          /* RNR Frame */
@@ -229,7 +230,7 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
             psLocalLlcpSocket->bSocketRNRPending = FALSE;
 
             /* Send RNR Frame */
-            status = phFriNfc_Llcp_Send_ReceiveNotReady_Frame(psLocalLlcpSocket);
+            result = phFriNfc_Llcp_Send_ReceiveNotReady_Frame(psLocalLlcpSocket);
          }
          /* CC Frame */
          else if(psLocalLlcpSocket->bSocketAcceptPending == TRUE)
@@ -252,7 +253,7 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
             psTransport->socketIndex = psLocalLlcpSocket->index;
 
             /* Send a CC Frame */
-            status =  phFriNfc_Llcp_Send(psTransport->pLlcp,
+            result =  phFriNfc_Llcp_Send(psTransport->pLlcp,
                                          &psLocalLlcpSocket->sLlcpHeader,
                                          NULL,
                                          &psLocalLlcpSocket->sSocketSendBuffer,
@@ -275,7 +276,7 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
             psLocalLlcpSocket->eSocket_State = phFriNfc_LlcpTransportSocket_eSocketConnecting;
 
             /* send CONNECT */
-            status =  phFriNfc_Llcp_Send(psTransport->pLlcp,
+            result =  phFriNfc_Llcp_Send(psTransport->pLlcp,
                                        &psLocalLlcpSocket->sLlcpHeader,
                                        NULL,
                                        &psLocalLlcpSocket->sSocketSendBuffer,
@@ -298,7 +299,7 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
             psTransport->socketIndex = psLocalLlcpSocket->index;
 
             /* Send DISC */
-            status =  phFriNfc_Llcp_Send(psTransport->pLlcp,
+            result =  phFriNfc_Llcp_Send(psTransport->pLlcp,
                                          &psLocalLlcpSocket->sLlcpHeader,
                                          NULL,
                                          &psLocalLlcpSocket->sSocketSendBuffer,
@@ -309,13 +310,10 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
             psLocalLlcpSocket->pSocketErrCb(psLocalLlcpSocket->pContext, PHFRINFC_LLCP_ERR_DISCONNECTED);
          }
          /* Call SEND IFRAME CB */
-         else if(psLocalLlcpSocket->pfSocketSend_Cb != NULL)
+         else if((psLocalLlcpSocket->pfSocketSend_Cb != NULL) && !psLocalLlcpSocket->bSocketSendPending)
          {
             psLocalLlcpSocket->pfSocketSend_Cb(psLocalLlcpSocket->pSendContext,status);
-            if(psTransport->pSocketTable[psTransport->socketIndex].bSocketSendPending != TRUE)
-            {
-               psLocalLlcpSocket->pfSocketSend_Cb = NULL;
-            }
+            psLocalLlcpSocket->pfSocketSend_Cb = NULL;
          }
       }
       /* Reset the current length of the send buffer */
@@ -324,7 +322,50 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB(void*        p
    else
    {
       /* Send CB error */
+      if(!psTransport->pSocketTable[psTransport->socketIndex].bSocketSendPending && psTransport->pSocketTable[psTransport->socketIndex].pfSocketSend_Cb != NULL)
+      {
+         psTransport->pSocketTable[psTransport->socketIndex].pfSocketSend_Cb(psTransport->pSocketTable[psTransport->socketIndex].pSendContext,status);
+         psTransport->pSocketTable[psTransport->socketIndex].pfSocketSend_Cb = NULL;
+      }
    }
+}
+
+static void phFriNfc_LlcpTransport_ConnectionOriented_Abort(phFriNfc_LlcpTransport_Socket_t * pLlcpSocket)
+{
+   if (pLlcpSocket->pfSocketSend_Cb != NULL)
+   {
+      pLlcpSocket->pfSocketSend_Cb(pLlcpSocket->pSendContext, NFCSTATUS_ABORTED);
+      pLlcpSocket->pfSocketSend_Cb = NULL;
+   }
+   pLlcpSocket->pSendContext = NULL;
+   if (pLlcpSocket->pfSocketRecv_Cb != NULL)
+   {
+      pLlcpSocket->pfSocketRecv_Cb(pLlcpSocket->pRecvContext, NFCSTATUS_ABORTED);
+      pLlcpSocket->pfSocketRecv_Cb = NULL;
+   }
+   pLlcpSocket->pRecvContext = NULL;
+   if (pLlcpSocket->pfSocketAccept_Cb != NULL)
+   {
+      pLlcpSocket->pfSocketAccept_Cb(pLlcpSocket->pAcceptContext, NFCSTATUS_ABORTED);
+      pLlcpSocket->pfSocketAccept_Cb = NULL;
+   }
+   pLlcpSocket->pAcceptContext = NULL;
+   if (pLlcpSocket->pfSocketConnect_Cb != NULL)
+   {
+      pLlcpSocket->pfSocketConnect_Cb(pLlcpSocket->pConnectContext, 0, NFCSTATUS_ABORTED);
+      pLlcpSocket->pfSocketConnect_Cb = NULL;
+   }
+   pLlcpSocket->pConnectContext = NULL;
+   if (pLlcpSocket->pfSocketDisconnect_Cb != NULL)
+   {
+      pLlcpSocket->pfSocketDisconnect_Cb(pLlcpSocket->pDisonnectContext, NFCSTATUS_ABORTED);
+      pLlcpSocket->pfSocketDisconnect_Cb = NULL;
+   }
+   pLlcpSocket->pDisonnectContext = NULL;
+
+   pLlcpSocket->pfSocketRecvFrom_Cb = NULL;
+   pLlcpSocket->pfSocketListen_Cb = NULL;
+   pLlcpSocket->pListenContext = NULL;
 }
 
 static NFCSTATUS phFriNfc_Llcp_Send_DisconnectMode_Frame(phFriNfc_LlcpTransport_t*   psTransport,
@@ -333,9 +374,6 @@ static NFCSTATUS phFriNfc_Llcp_Send_DisconnectMode_Frame(phFriNfc_LlcpTransport_
                                                          uint8_t                     dmOpCode)
 {
    NFCSTATUS                       status = NFCSTATUS_SUCCESS;
-   phFriNfc_Llcp_sPacketHeader_t   sLocalLlcpHeader;
-   uint8_t                         dmValue;
-   phNfc_sData_t                   sLocalBuffer;
 
    /* Test if a send is pending */
    if(psTransport->bSendPending)
@@ -352,25 +390,24 @@ static NFCSTATUS phFriNfc_Llcp_Send_DisconnectMode_Frame(phFriNfc_LlcpTransport_
    }
    else
    {
-      /* Store the DM OpCode */
-      dmValue = dmOpCode;
-
       /* Set the header */
-      sLocalLlcpHeader.dsap  = dsap;
-      sLocalLlcpHeader.ptype = PHFRINFC_LLCP_PTYPE_DM;
-      sLocalLlcpHeader.ssap  = ssap;
+      psTransport->sDmHeader.dsap  = dsap;
+      psTransport->sDmHeader.ptype = PHFRINFC_LLCP_PTYPE_DM;
+      psTransport->sDmHeader.ssap  = ssap;
 
-      sLocalBuffer.buffer    = &dmValue;
-      sLocalBuffer.length    = PHFRINFC_LLCP_DM_LENGTH;
+      /* Save Operation Code to be provided in DM frame payload */
+      psTransport->DmInfoBuffer[2] = dmOpCode;
+      psTransport->sDmPayload.buffer    = &psTransport->DmInfoBuffer[2];
+      psTransport->sDmPayload.length    = PHFRINFC_LLCP_DM_LENGTH;
 
       /* Send Pending */
       psTransport->bSendPending = TRUE;
 
       /* Send DM frame */
       status =  phFriNfc_Llcp_Send(psTransport->pLlcp,
-                                   &sLocalLlcpHeader,
+                                   &psTransport->sDmHeader,
                                    NULL,
-                                   &sLocalBuffer,
+                                   &psTransport->sDmPayload,
                                    phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB,
                                    psTransport);
    }
@@ -479,7 +516,7 @@ static NFCSTATUS phFriNfc_Llcp_Send_FrameReject_Frame(phFriNfc_LlcpTransport_t  
    NFCSTATUS                       status = NFCSTATUS_SUCCESS;
    phNfc_sData_t                   sFrmrBuffer;
    uint8_t                         flagValue;
-   uint8_t                         sequence;
+   uint8_t                         sequence = 0;
    uint8_t     index;
    uint8_t     socketFound = FALSE;
 
@@ -515,7 +552,10 @@ static NFCSTATUS phFriNfc_Llcp_Send_FrameReject_Frame(phFriNfc_LlcpTransport_t  
 
       /* Set FRMR Information Field */
       flagValue = (WFlag<<7) | (IFlag<<6) | (RFlag<<5) | (SFlag<<4) | rejectedPTYPE;
-      sequence = (uint8_t)((sLlcpSequence->ns<<4)|(sLlcpSequence->nr));
+      if (sLlcpSequence != NULL)
+      {
+         sequence = (uint8_t)((sLlcpSequence->ns<<4)|(sLlcpSequence->nr));
+      }
 
       psTransport->FrmrInfoBuffer[0] = flagValue;
       psTransport->FrmrInfoBuffer[1] = sequence;
@@ -869,8 +909,10 @@ static void Handle_ConnectionCompleteFrame(phFriNfc_LlcpTransport_t      *psTran
          psLocalLlcpSocket->remoteMIU  = remoteMIU;
          psLocalLlcpSocket->remoteRW   = remoteRW;
 
-         /* Call the Connect CB */
+         /* Call the Connect CB and reset callback info */
          psLocalLlcpSocket->pfSocketConnect_Cb(psLocalLlcpSocket->pConnectContext,0x00,NFCSTATUS_SUCCESS);
+         psLocalLlcpSocket->pfSocketConnect_Cb = NULL;
+         psLocalLlcpSocket->pConnectContext = NULL;
       }
       else
       {
@@ -1045,6 +1087,7 @@ static void Handle_DisconnetModeFrame(phFriNfc_LlcpTransport_t      *psTransport
                if (psLocalLlcpSocket->pfSocketDisconnect_Cb != NULL)
                {
                   psLocalLlcpSocket->pfSocketDisconnect_Cb(psLocalLlcpSocket->pDisonnectContext,NFCSTATUS_SUCCESS);
+                  psLocalLlcpSocket->pfSocketDisconnect_Cb = NULL;
                }
 
             }break;
@@ -1061,6 +1104,7 @@ static void Handle_DisconnetModeFrame(phFriNfc_LlcpTransport_t      *psTransport
                {
                   /* Call Connect CB */
                   psLocalLlcpSocket->pfSocketConnect_Cb(psLocalLlcpSocket->pConnectContext,dmOpCode,NFCSTATUS_FAILED);
+                  psLocalLlcpSocket->pfSocketConnect_Cb = NULL;
                }
             }break;
          }
@@ -1211,9 +1255,10 @@ static void Handle_Receive_IFrame(phFriNfc_LlcpTransport_t      *psTransport,
 
                /* Call the Receive CB */
                psLocalLlcpSocket->pfSocketRecv_Cb(psLocalLlcpSocket->pRecvContext, NFCSTATUS_SUCCESS);
+               psLocalLlcpSocket->pfSocketRecv_Cb = NULL;
 
                /* Test if a send is pending with this socket */
-               if(psLocalLlcpSocket->bSocketSendPending == TRUE && (psLocalLlcpSocket->socket_VS != (psLocalLlcpSocket->socket_VSA + psLocalLlcpSocket->remoteRW)))
+               if(psLocalLlcpSocket->bSocketSendPending == TRUE && CHECK_SEND_RW(psLocalLlcpSocket))
                {
                   /* Test if a send is pending at LLC layer */
                   if(psTransport->bSendPending != TRUE)
@@ -1319,7 +1364,7 @@ static void Handle_Receive_IFrame(phFriNfc_LlcpTransport_t      *psTransport,
               }
 
               /* Test if a send is pending with this socket */
-              if((psLocalLlcpSocket->bSocketSendPending == TRUE) && (psLocalLlcpSocket->socket_VS != (psLocalLlcpSocket->socket_VSA + psLocalLlcpSocket->remoteRW)))
+              if((psLocalLlcpSocket->bSocketSendPending == TRUE) && CHECK_SEND_RW(psLocalLlcpSocket))
               {
                  /* Test if a send is pending at LLC layer */
                  if(psTransport->bSendPending != TRUE)
@@ -1481,7 +1526,7 @@ static void Handle_ReceiveReady_Frame(phFriNfc_LlcpTransport_t      *psTransport
          if(psLocalLlcpSocket->bSocketSendPending == TRUE)
          {
             /* Test the RW window */
-            if(psLocalLlcpSocket->socket_VS != (psLocalLlcpSocket->socket_VSA + psLocalLlcpSocket->remoteRW))
+            if(CHECK_SEND_RW(psLocalLlcpSocket))
             {
                /* Test if a send is pending at LLC layer */
                if(psTransport->bSendPending != TRUE)
@@ -1617,7 +1662,7 @@ static void Handle_ReceiveNotReady_Frame(phFriNfc_LlcpTransport_t      *psTransp
          psLocalLlcpSocket->socket_VSA = (uint8_t)sLlcpLocalSequence.nr;
 
          /* Test if a send is pendind */
-         if(psLocalLlcpSocket->bSocketSendPending == TRUE && (psLocalLlcpSocket->socket_VS != (psLocalLlcpSocket->socket_VSA + psLocalLlcpSocket->remoteRW)))
+         if(psLocalLlcpSocket->bSocketSendPending == TRUE && CHECK_SEND_RW(psLocalLlcpSocket))
          {
             /* Test if a send is pending at LLC layer */
             if(psTransport->bSendPending != TRUE)
@@ -2036,13 +2081,11 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Accept(phFriNfc_LlcpTranspor
       {
          /* Call the CB */
          status = PHNFCSTVAL(CID_FRI_NFC_LLCP_TRANSPORT, NFCSTATUS_FAILED);
-         /* Call the callback */
-         pAccept_RspCb(pLlcpSocket->pAcceptContext,status);
-         return status;
+         goto clean_and_return;
       }
    }
 
-   /* Recive Window */
+   /* Receive Window */
    if(pLlcpSocket->sSocketOption.rw != PHFRINFC_LLCP_RW_DEFAULT)
    {
       /* Encode RW value */
@@ -2058,9 +2101,7 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Accept(phFriNfc_LlcpTranspor
       {
          /* Call the CB */
          status = PHNFCSTVAL(CID_FRI_NFC_LLCP_TRANSPORT, NFCSTATUS_FAILED);
-         /* Call the callback */
-         pAccept_RspCb(pLlcpSocket->pAcceptContext,status);
-         return status;
+         goto clean_and_return;
       }
    }
 
@@ -2102,6 +2143,15 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Accept(phFriNfc_LlcpTranspor
                                    phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB,
                                    pLlcpSocket->psTransport);
    }
+
+clean_and_return:
+   if(status != NFCSTATUS_PENDING)
+   {
+      LLCP_PRINT("Release Accept callback");
+      pLlcpSocket->pfSocketAccept_Cb = NULL;
+      pLlcpSocket->pAcceptContext = NULL;
+   }
+
    return status;
 }
 
@@ -2216,11 +2266,12 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Connect( phFriNfc_LlcpTransp
                                         miux);
       if(status != NFCSTATUS_SUCCESS)
       {
-         return status = PHNFCSTVAL(CID_FRI_NFC_LLCP_TRANSPORT, NFCSTATUS_FAILED);
+         status = PHNFCSTVAL(CID_FRI_NFC_LLCP_TRANSPORT, NFCSTATUS_FAILED);
+         goto clean_and_return;
       }
    }
 
-   /* Recive Window */
+   /* Receive Window */
    if(pLlcpSocket->sSocketOption.rw != PHFRINFC_LLCP_RW_DEFAULT)
    {
       /* Encode RW value */
@@ -2235,6 +2286,7 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Connect( phFriNfc_LlcpTransp
       if(status != NFCSTATUS_SUCCESS)
       {
          status = PHNFCSTVAL(CID_FRI_NFC_LLCP_TRANSPORT, NFCSTATUS_FAILED);
+         goto clean_and_return;
       }
    }
 
@@ -2250,10 +2302,11 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Connect( phFriNfc_LlcpTransp
       if(status != NFCSTATUS_SUCCESS)
       {
          status = PHNFCSTVAL(CID_FRI_NFC_LLCP_TRANSPORT, NFCSTATUS_FAILED);
+         goto clean_and_return;
       }
    }
 
-      /* Test if a send is pending */
+   /* Test if a send is pending */
    if(pLlcpSocket->psTransport->bSendPending == TRUE)
    {
       pLlcpSocket->bSocketConnectPending =  TRUE;
@@ -2283,6 +2336,14 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Connect( phFriNfc_LlcpTransp
                                    &pLlcpSocket->sSocketSendBuffer,
                                    phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB,
                                    pLlcpSocket->psTransport);
+   }
+
+clean_and_return:
+   if(status != NFCSTATUS_PENDING)
+   {
+      LLCP_PRINT("Release Connect callback");
+      pLlcpSocket->pfSocketConnect_Cb = NULL;
+      pLlcpSocket->pConnectContext = NULL;
    }
 
    return status;
@@ -2321,6 +2382,9 @@ NFCSTATUS phLibNfc_LlcpTransport_ConnectionOriented_Disconnect(phFriNfc_LlcpTran
    /* Store the Disconnect callback  and context*/
    pLlcpSocket->pfSocketDisconnect_Cb = pDisconnect_RspCb;
    pLlcpSocket->pDisonnectContext = pContext;
+
+   /* Set the socket in connecting state */
+   pLlcpSocket->eSocket_State = phFriNfc_LlcpTransportSocket_eSocketDisconnecting;
 
    /* Test if a send IFRAME is pending with this socket */
    if((pLlcpSocket->bSocketSendPending == TRUE) || (pLlcpSocket->bSocketRecvPending == TRUE))
@@ -2373,16 +2437,20 @@ NFCSTATUS phLibNfc_LlcpTransport_ConnectionOriented_Disconnect(phFriNfc_LlcpTran
       /* Store the index of the socket */
       pLlcpSocket->psTransport->socketIndex = pLlcpSocket->index;
 
-      /* Set the socket in connecting state */
-      pLlcpSocket->eSocket_State = phFriNfc_LlcpTransportSocket_eSocketDisconnecting;
-
       status =  phFriNfc_Llcp_Send(pLlcpSocket->psTransport->pLlcp,
                                    &pLlcpSocket->sLlcpHeader,
                                    NULL,
                                    NULL,
                                    phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB,
                                    pLlcpSocket->psTransport);
+      if(status != NFCSTATUS_PENDING)
+      {
+         LLCP_PRINT("Release Disconnect callback");
+         pLlcpSocket->pfSocketConnect_Cb = NULL;
+         pLlcpSocket->pConnectContext = NULL;
+      }
    }
+
    return status;
 }
 
@@ -2405,15 +2473,12 @@ static void phFriNfc_LlcpTransport_ConnectionOriented_DisconnectClose_CB(void*  
       pLlcpSocket->bSocketSendPending                 = FALSE;
       pLlcpSocket->bSocketListenPending               = FALSE;
       pLlcpSocket->bSocketDiscPending                 = FALSE;
-      pLlcpSocket->pfSocketSend_Cb                    = NULL;
-      pLlcpSocket->pfSocketRecv_Cb                    = NULL;
-      pLlcpSocket->pfSocketListen_Cb                  = NULL;
-      pLlcpSocket->pfSocketConnect_Cb                 = NULL;
-      pLlcpSocket->pfSocketDisconnect_Cb              = NULL;
       pLlcpSocket->socket_VS                          = 0;
       pLlcpSocket->socket_VSA                         = 0;
       pLlcpSocket->socket_VR                          = 0;
       pLlcpSocket->socket_VRA                         = 0;
+
+      phFriNfc_LlcpTransport_ConnectionOriented_Abort(pLlcpSocket);
 
       memset(&pLlcpSocket->sSocketOption, 0x00, sizeof(phFriNfc_LlcpTransport_sSocketOptions_t));
 
@@ -2455,7 +2520,7 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Close(phFriNfc_LlcpTransport
    }
    else
    {
-      LLCP_PRINT("Socket Closed");
+      LLCP_PRINT("Socket not connected, no need to disconnect");
       /* Reset the pointer to the socket closed */
       pLlcpSocket->eSocket_State                      = phFriNfc_LlcpTransportSocket_eSocketDefault;
       pLlcpSocket->eSocket_Type                       = phFriNfc_LlcpTransport_eDefaultType;
@@ -2469,15 +2534,12 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Close(phFriNfc_LlcpTransport
       pLlcpSocket->bSocketDiscPending                 = FALSE;
       pLlcpSocket->RemoteBusyConditionInfo            = FALSE;
       pLlcpSocket->ReceiverBusyCondition              = FALSE;
-      pLlcpSocket->pfSocketSend_Cb                    = NULL;
-      pLlcpSocket->pfSocketRecv_Cb                    = NULL;
-      pLlcpSocket->pfSocketListen_Cb                  = NULL;
-      pLlcpSocket->pfSocketConnect_Cb                 = NULL;
-      pLlcpSocket->pfSocketDisconnect_Cb              = NULL;
       pLlcpSocket->socket_VS                          = 0;
       pLlcpSocket->socket_VSA                         = 0;
       pLlcpSocket->socket_VR                          = 0;
       pLlcpSocket->socket_VRA                         = 0;
+
+      phFriNfc_LlcpTransport_ConnectionOriented_Abort(pLlcpSocket);
 
       memset(&pLlcpSocket->sSocketOption, 0x00, sizeof(phFriNfc_LlcpTransport_sSocketOptions_t));
 
@@ -2525,7 +2587,7 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Send(phFriNfc_LlcpTransport_
 
 
    /* Test the RW window */
-   if(pLlcpSocket->socket_VS == (pLlcpSocket->socket_VSA + pLlcpSocket->remoteRW))
+   if(!CHECK_SEND_RW(pLlcpSocket))
    {
       /* Store the Send CB and context */
       pLlcpSocket->pfSocketSend_Cb    = pSend_RspCb;
@@ -2537,8 +2599,8 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Send(phFriNfc_LlcpTransport_
       /* Store send buffer pointer */
       pLlcpSocket->sSocketSendBuffer = *psBuffer;
 
-     /* Set status */
-     status = NFCSTATUS_PENDING;
+      /* Set status */
+      status = NFCSTATUS_PENDING;
    }
    else
    {
@@ -2586,6 +2648,12 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Send(phFriNfc_LlcpTransport_
                                       psBuffer,
                                       phFriNfc_LlcpTransport_ConnectionOriented_SendLlcp_CB,
                                       pLlcpSocket->psTransport);
+         if(status != NFCSTATUS_PENDING)
+         {
+            LLCP_PRINT("Release Send callback");
+            pLlcpSocket->pfSocketSend_Cb = NULL;
+            pLlcpSocket->pSendContext = NULL;
+         }
 
          /* Update VS */
          pLlcpSocket->socket_VS = (pLlcpSocket->socket_VS+1)%16;
@@ -2638,6 +2706,11 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Recv( phFriNfc_LlcpTransport
    /* Test if the WorkingBuffer Length is null */
    if(pLlcpSocket->bufferLinearLength == 0)
    {
+      if (pLlcpSocket->eSocket_State != phFriNfc_LlcpTransportSocket_eSocketConnected)
+      {
+          return NFCSTATUS_FAILED;
+      }
+      
       /* Test If data is present in the RW Buffer */
       if(pLlcpSocket->indexRwRead != pLlcpSocket->indexRwWrite)
       {
@@ -2670,6 +2743,7 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Recv( phFriNfc_LlcpTransport
             /* Reset the ReceiverBusyCondition Flag */
             pLlcpSocket->ReceiverBusyCondition = FALSE;
             /* RR */
+            /* TODO: report status? */
             phFriNfc_Llcp_Send_ReceiveReady_Frame(pLlcpSocket);
          }
       }
@@ -2748,6 +2822,7 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Recv( phFriNfc_LlcpTransport
                   /* Reset the ReceiverBusyCondition Flag */
                   pLlcpSocket->ReceiverBusyCondition = FALSE;
                   /* RR */
+                  /* TODO: report status? */
                   phFriNfc_Llcp_Send_ReceiveReady_Frame(pLlcpSocket);
                }
             }
@@ -2758,24 +2833,39 @@ NFCSTATUS phFriNfc_LlcpTransport_ConnectionOriented_Recv( phFriNfc_LlcpTransport
          else
          {
             /* Call the Receive CB   */
-            pRecv_RspCb(pContext,NFCSTATUS_FAILED);
+            status = NFCSTATUS_FAILED;
          }
       }
       else
       {
-         /* Set Receive pending */
-         pLlcpSocket->bSocketRecvPending = TRUE;
+         if (pLlcpSocket->eSocket_State != phFriNfc_LlcpTransportSocket_eSocketConnected)
+         {
+             status = NFCSTATUS_FAILED;
+         }
+         else
+         {
+            /* Set Receive pending */
+            pLlcpSocket->bSocketRecvPending = TRUE;
 
-         /* Store the buffer pointer */
-         pLlcpSocket->sSocketRecvBuffer = psBuffer;
+            /* Store the buffer pointer */
+            pLlcpSocket->sSocketRecvBuffer = psBuffer;
 
-         /* Store the Recv CB and context */
-         pLlcpSocket->pfSocketRecv_Cb  = pRecv_RspCb;
-         pLlcpSocket->pRecvContext     = pContext;
+            /* Store the Recv CB and context */
+            pLlcpSocket->pfSocketRecv_Cb  = pRecv_RspCb;
+            pLlcpSocket->pRecvContext     = pContext;
 
-         /* Set status */
-         status = NFCSTATUS_PENDING;
+            /* Set status */
+            status = NFCSTATUS_PENDING;
+         }
       }
+   }
+
+   if(status != NFCSTATUS_PENDING)
+   {
+      /* Note: The receive callback must be released to avoid being called at abort */
+      LLCP_PRINT("Release Receive callback");
+      pLlcpSocket->pfSocketRecv_Cb = NULL;
+      pLlcpSocket->pRecvContext = NULL;
    }
 
    return status;

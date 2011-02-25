@@ -40,7 +40,7 @@
 #include <phLibNfc_initiator.h>
 #include <phLibNfc_discovery.h>
 #include <phNfcStatus.h>
-
+#include <utils/Log.h>
 /*
 *************************** Macro's  ******************************************
 */
@@ -102,14 +102,32 @@ NFCSTATUS phLibNfc_Mgt_UnConfigureDriver (void *                 pDriverHandle)
    return phDal4Nfc_ConfigRelease(pDriverHandle);
 }
 
-NFCSTATUS phLibNfc_HW_Reset (long level)
+NFCSTATUS phLibNfc_HW_Reset ()
 {
-   return phDal4Nfc_Reset(level);
+    NFCSTATUS Status = NFCSTATUS_SUCCESS;
+
+    Status = phDal4Nfc_Reset(0);
+    Status = phDal4Nfc_Reset(1);
+
+    return Status;
 }
 
-NFCSTATUS phLibNfc_Download_Mode (long level)
+NFCSTATUS phLibNfc_Download_Mode ()
 {
-   return phDal4Nfc_Download(level);
+   return phDal4Nfc_Download();
+}
+
+
+extern uint8_t nxp_nfc_isoxchg_timeout;
+NFCSTATUS phLibNfc_SetIsoXchgTimeout(uint8_t timeout) {
+    nxp_nfc_isoxchg_timeout = timeout;
+    return NFCSTATUS_SUCCESS;
+}
+
+extern uint32_t nxp_nfc_hci_response_timeout;
+NFCSTATUS phLibNfc_SetHciTimeout(uint32_t timeout_in_ms) {
+    nxp_nfc_hci_response_timeout = timeout_in_ms;
+    return NFCSTATUS_SUCCESS;
 }
 
 /**
@@ -809,6 +827,10 @@ NFCSTATUS phLibNfc_Mgt_GetstackCapabilities(
         (void)memcpy(phLibNfc_StackCapabilities->psDevCapabilities.full_version,
             gpphLibContext->psHwReference->device_info.full_version,NXP_FULL_VERSION_LEN);
         
+        /* Check the firmware version */
+        phLibNfc_StackCapabilities->psDevCapabilities.firmware_update_info = memcmp(phLibNfc_StackCapabilities->psDevCapabilities.full_version, nxp_nfc_full_version,
+                   NXP_FULL_VERSION_LEN);
+
         if(NFCSTATUS_SUCCESS != RetVal)
         {       
             RetVal = NFCSTATUS_FAILED;

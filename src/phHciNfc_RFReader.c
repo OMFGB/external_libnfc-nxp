@@ -63,6 +63,7 @@
 
 #define NFCIP_ACTIVATE_DELAY       0x05U
 
+uint8_t nxp_nfc_isoxchg_timeout = NXP_ISO_XCHG_TIMEOUT;
 /*
 *************************** Structure and Enumeration ***************************
 */
@@ -2253,7 +2254,7 @@ phHciNfc_ReaderMgmt_Release(
                 phHciNfc_Append_HCPFrame((uint8_t *)hcp_message->payload,
                                             i, p_pipe_info->param_info,
                                             p_pipe_info->param_length);
-                length =(uint8_t)(length + i + p_pipe_info->param_length);
+                length =(uint16_t)(length + i + p_pipe_info->param_length);
                 break;
             }
             default:
@@ -2299,7 +2300,7 @@ phHciNfc_ReaderMgmt_Release(
     phHciNfc_HCP_Message_t  *hcp_message = NULL;
     phHciNfc_Pipe_Info_t    *p_pipe_info = NULL;
     uint8_t                 i = 0;
-    uint8_t                 length=0;
+    uint16_t                 length=0;
     NFCSTATUS               status = NFCSTATUS_SUCCESS;
 
     if( (NULL == psHciContext)
@@ -2328,11 +2329,11 @@ phHciNfc_ReaderMgmt_Release(
                                         (uint8_t) pipe_id, HCP_MSG_TYPE_COMMAND, cmd);
                 hcp_message = &(hcp_packet->msg.message);
                 /* Frame Wait Timeout */
-                hcp_message->payload[i++] = NXP_ISO_XCHG_TIMEOUT ;
+                hcp_message->payload[i++] = nxp_nfc_isoxchg_timeout ;
                 phHciNfc_Append_HCPFrame((uint8_t *)hcp_message->payload,
                                             i, p_pipe_info->param_info,
                                             p_pipe_info->param_length);
-                length =(uint8_t)(length + i + p_pipe_info->param_length);
+                length =(uint16_t)(length + i + p_pipe_info->param_length);
                 break;
             }
             case NXP_WR_PRESCHECK:
@@ -2358,7 +2359,7 @@ phHciNfc_ReaderMgmt_Release(
                 phHciNfc_Append_HCPFrame((uint8_t *)hcp_message->payload,
                                             i, p_pipe_info->param_info,
                                             p_pipe_info->param_length);
-                length =(uint8_t)(length + i + p_pipe_info->param_length);
+                length =(uint16_t)(length + i + p_pipe_info->param_length);
                 break;
             }
             default:

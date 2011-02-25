@@ -20,10 +20,10 @@
 *
 * Project: NFC-FRI
 *
-* $Date: Fri Jan 30 14:17:04 2009 $
-* $Author: ing07299 $
-* $Revision: 1.2 $
-* $Aliases: NFC_FRI1.1_WK906_R18_1,NFC_FRI1.1_WK908_PREP1,NFC_FRI1.1_WK908_R19_1,NFC_FRI1.1_WK910_PREP1,NFC_FRI1.1_WK910_R20_1,NFC_FRI1.1_WK912_PREP1,NFC_FRI1.1_WK912_R21_1,NFC_FRI1.1_WK914_PREP1,NFC_FRI1.1_WK914_R22_1,NFC_FRI1.1_WK914_R22_2,NFC_FRI1.1_WK916_R23_1,NFC_FRI1.1_WK918_R24_1,NFC_FRI1.1_WK920_PREP1,NFC_FRI1.1_WK920_R25_1,NFC_FRI1.1_WK922_PREP1,NFC_FRI1.1_WK922_R26_1,NFC_FRI1.1_WK924_PREP1,NFC_FRI1.1_WK924_R27_1,NFC_FRI1.1_WK926_R28_1,NFC_FRI1.1_WK928_R29_1,NFC_FRI1.1_WK930_R30_1,NFC_FRI1.1_WK934_PREP_1,NFC_FRI1.1_WK934_R31_1,NFC_FRI1.1_WK941_PREP1,NFC_FRI1.1_WK941_PREP2,NFC_FRI1.1_WK941_1,NFC_FRI1.1_WK943_R32_1,NFC_FRI1.1_WK949_PREP1,NFC_FRI1.1_WK943_R32_10,NFC_FRI1.1_WK943_R32_13,NFC_FRI1.1_WK943_R32_14,NFC_FRI1.1_WK1007_R33_1,NFC_FRI1.1_WK1007_R33_4,NFC_FRI1.1_WK1017_PREP1,NFC_FRI1.1_WK1017_R34_1,NFC_FRI1.1_WK1017_R34_2,NFC_FRI1.1_WK1023_R35_1 $
+* $Date: Tue Jul 27 08:59:52 2010 $
+* $Author: ing02260 $
+* $Revision: 1.3 $
+* $Aliases:  $
 *
 */
 
@@ -57,6 +57,18 @@ enum{
     PH_FRINFC_DESF_STATE_GET_UID = 9,
     PH_FRINFC_DESF_STATE_GET_SW_VERSION = 10,
     PH_FRINFC_DESF_STATE_GET_HW_VERSION = 11,
+#ifdef FRINFC_READONLY_NDEF
+
+#ifdef DESFIRE_FMT_EV1
+    PH_FRINFC_DESF_STATE_RO_SELECT_APP_EV1 = 100,
+#endif /* #ifdef DESFIRE_FMT_EV1 */
+
+    PH_FRINFC_DESF_STATE_RO_SELECT_APP = 101,
+    PH_FRINFC_DESF_STATE_RO_SELECT_CC_FILE = 102,
+    PH_FRINFC_DESF_STATE_RO_READ_CC_FILE = 103,
+    PH_FRINFC_DESF_STATE_RO_UPDATE_CC_FILE = 104,
+
+#endif /* #ifdef FRINFC_READONLY_NDEF */
 
     /* following are used in the ISO wrapper commands*/
     PH_FRINFC_DESF_CREATEAPP_CMD = 0,
@@ -64,6 +76,9 @@ enum{
     PH_FRINFC_DESF_CREATECC_CMD = 2,
     PH_FRINFC_DESF_CREATENDEF_CMD = 3,
     PH_FRINFC_DESF_WRITECC_CMD = 4,
+#ifdef FRINFC_READONLY_NDEF
+    PH_FRINFC_DESF_WRITECC_CMD_READ_ONLY = 20, 
+#endif /* #ifdef FRINFC_READONLY_NDEF */
     PH_FRINFC_DESF_WRITENDEF_CMD = 5,
     PH_FRINFC_DESF_GET_HW_VERSION_CMD = 6,
     PH_FRINFC_DESF_GET_SW_VERSION_CMD = 7,
@@ -104,8 +119,7 @@ enum{
 
 /* Create File command constants*/
 #define  PH_FRINFC_DESF_CREATE_AID_CMD                  0xCA
-/* This settings can be changed, depending on the requirement*/
-#define  PH_FRINFC_DESF_PICC_NFC_KEY_SETTING            0x0F    
+   
 /* Specifies the NFC Forum App Number of Keys*/
 #define  PH_FRINFC_DESF_NFCFORUM_APP_NO_OF_KEYS         0x01
 
@@ -195,6 +209,43 @@ void phFriNfc_Desfire_Reset(phFriNfc_sNdefSmtCrdFmt_t *NdefSmtCrdFmt);
 *
 */
 NFCSTATUS phFriNfc_Desfire_Format(phFriNfc_sNdefSmtCrdFmt_t *NdefSmtCrdFmt);
+
+/*!
+* \brief \copydoc page_reg Resets the component instance to the initial state and lets the component forget about
+*        the list of registered items. Moreover, the lower device is set.
+*
+* \param[in] NdefSmtCrdFmt Pointer to a valid or uninitialized instance of \ref phFriNfc_sNdefSmtCrdFmt_t.
+*
+* \note  This function has to be called at the beginning, after creating an instance of
+*        \ref phFriNfc_sNdefSmtCrdFmt_t. Use this function to reset the instance of smart card
+formatting context variables.
+*/
+void phFriNfc_Desfire_Reset(phFriNfc_sNdefSmtCrdFmt_t *NdefSmtCrdFmt);
+
+#ifdef FRINFC_READONLY_NDEF
+/*!
+ * \ingroup grp_fri_smart_card_formatting
+ *
+ * \brief Initiates the conversion of the already NDEF formatted tag to READ ONLY.
+ *
+ * \copydoc page_ovr  The function initiates the conversion of the already NDEF formatted
+ * tag to READ ONLY. After this formation, remote card would be properly Ndef Compliant and READ ONLY.
+ * Depending upon the different card type, this function handles formatting procedure.
+ * 
+ * \param[in] phFriNfc_sNdefSmartCardFmt_t Pointer to a valid instance of the \ref phFriNfc_sNdefSmartCardFmt_t
+ *                             structure describing the component context.
+ *
+ * \retval NFCSTATUS_SUCCESS                  Card formatting has been successfully completed.
+ * \retval NFCSTATUS_PENDING                  The action has been successfully triggered.
+ * \retval NFCSTATUS_FORMAT_ERROR             Error occured during the formatting procedure.
+ * \retval NFCSTATUS_INVALID_REMOTE_DEVICE    Card Type is unsupported.
+ * \retval NFCSTATUS_INVALID_DEVICE_REQUEST   Command or Operation types are mismatching.
+ *
+ */
+NFCSTATUS 
+phFriNfc_Desfire_ConvertToReadOnly (
+    phFriNfc_sNdefSmtCrdFmt_t   *NdefSmtCrdFmt);
+#endif /* #ifdef FRINFC_READONLY_NDEF */
 
 /**
 *\ingroup grp_fri_smart_card_formatting

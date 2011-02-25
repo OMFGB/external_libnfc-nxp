@@ -32,12 +32,53 @@
 #include <stdio.h>
 #include <string.h>
 
-
 static NFCSTATUS phFriNfc_LlcpMac_Nfcip_Send(phFriNfc_LlcpMac_t               *LlcpMac,
                                              phNfc_sData_t                    *psData,
                                              phFriNfc_LlcpMac_Send_CB_t       LlcpMacSend_Cb,
                                              void                             *pContext);
 
+
+static void phFriNfc_LlcpMac_Nfcip_TriggerRecvCb(phFriNfc_LlcpMac_t  *LlcpMac,
+                                                 NFCSTATUS           status)
+{
+   phFriNfc_LlcpMac_Reveive_CB_t pfReceiveCB;
+   void                          *pReceiveContext;
+
+   if (LlcpMac->MacReceive_Cb != NULL)
+   {
+      /* Save callback params */
+      pfReceiveCB = LlcpMac->MacReceive_Cb;
+      pReceiveContext = LlcpMac->MacReceive_Context;
+
+      /* Reset the pointer to the Receive Callback and Context*/
+      LlcpMac->MacReceive_Cb = NULL;
+      LlcpMac->MacReceive_Context = NULL;
+
+      /* Call the receive callback */
+      pfReceiveCB(pReceiveContext, status, LlcpMac->psReceiveBuffer);
+   }
+}
+
+static void phFriNfc_LlcpMac_Nfcip_TriggerSendCb(phFriNfc_LlcpMac_t  *LlcpMac,
+                                                 NFCSTATUS           status)
+{
+   phFriNfc_LlcpMac_Send_CB_t pfSendCB;
+   void                       *pSendContext;
+
+   if (LlcpMac->MacSend_Cb != NULL)
+   {
+      /* Save context in local variables */
+      pfSendCB     = LlcpMac->MacSend_Cb;
+      pSendContext = LlcpMac->MacSend_Context;
+
+      /* Reset the pointer to the Send Callback */
+      LlcpMac->MacSend_Cb = NULL;
+      LlcpMac->MacSend_Context = NULL;
+
+      /* Call Send callback */
+      pfSendCB(pSendContext, status);
+   }
+}
 
 static NFCSTATUS phFriNfc_LlcpMac_Nfcip_Chk(phFriNfc_LlcpMac_t                   *LlcpMac,
                                             phFriNfc_LlcpMac_Chk_CB_t            ChkLlcpMac_Cb,
@@ -103,6 +144,22 @@ static NFCSTATUS phFriNfc_LlcpMac_Nfcip_Deactivate (phFriNfc_LlcpMac_t   *LlcpMa
       LlcpMac->LinkState = phFriNfc_LlcpMac_eLinkDeactivated;
    }
 
+   if (LlcpMac->SendPending)
+   {
+      /* Reset Flag */
+      LlcpMac->SendPending = FALSE;
+
+      phFriNfc_LlcpMac_Nfcip_TriggerSendCb(LlcpMac, NFCSTATUS_FAILED);
+   }
+
+   if (LlcpMac->RecvPending)
+   {
+      /* Reset Flag */
+      LlcpMac->RecvPending = FALSE;
+
+      phFriNfc_LlcpMac_Nfcip_TriggerRecvCb(LlcpMac, NFCSTATUS_FAILED);
+   }
+
    LlcpMac->LinkStatus_Cb(LlcpMac->LinkStatus_Context,
                           LlcpMac->LinkState,
                           NULL,
@@ -115,78 +172,102 @@ static void phFriNfc_LlcpMac_Nfcip_Send_Cb(void       *pContext,
                                            NFCSTATUS   Status)
 {
    phFriNfc_LlcpMac_t            *LlcpMac = (phFriNfc_LlcpMac_t *)pContext;
-   phFriNfc_LlcpMac_Send_CB_t    pfSendCB;
-   void                          *pSendContext;
+
+#ifdef LLCP_CHANGES
+   if(gpphLibContext->LibNfcState.next_state
+                               == eLibNfcHalStateShutdown)
+   {
+      phLibNfc_Pending_Shutdown();
+      Status = NFCSTATUS_SHUTDOWN;
+   }
+#endif /* #ifdef LLCP_CHANGES */
 
    /* Reset Send and Receive Flag */
    LlcpMac->SendPending = FALSE;
    LlcpMac->RecvPending = FALSE;
 
-   /* Save context in local variables */
-   pfSendCB = LlcpMac->MacSend_Cb;
-   pSendContext = LlcpMac->MacSend_Context;
+   phFriNfc_LlcpMac_Nfcip_TriggerSendCb(LlcpMac, Status);
 
-   /* Reset the pointer to the Send Callback */
-   LlcpMac->MacSend_Cb = NULL;
-   LlcpMac->MacSend_Context = NULL;
-
-   /* Call Send callback */
-   pfSendCB(pSendContext, Status);
 }
 
 static void phFriNfc_LlcpMac_Nfcip_Receive_Cb(void       *pContext,
                                               NFCSTATUS   Status)
 {
    phFriNfc_LlcpMac_t               *LlcpMac = (phFriNfc_LlcpMac_t *)pContext;
-   phFriNfc_LlcpMac_Reveive_CB_t    pfReceiveCB;
-   void                             *pReceiveContext;
+#ifdef LLCP_CHANGES
 
-   /* Save callback params */
-   pfReceiveCB = LlcpMac->MacReceive_Cb;
-   pReceiveContext = LlcpMac->MacReceive_Context;
+   phFriNfc_LlcpMac_Send_CB_t       pfSendCB;
+   void                             *pSendContext;
 
-   /* Reset the pointer to the Receive Callback and Context*/
-   LlcpMac->MacReceive_Cb = NULL;
-   LlcpMac->MacReceive_Context = NULL;
 
-   /* Call the receive callback */
-   pfReceiveCB(pReceiveContext, Status, LlcpMac->psReceiveBuffer);
+   if(gpphLibContext->LibNfcState.next_state
+                               == eLibNfcHalStateShutdown)
+   {
+      phLibNfc_Pending_Shutdown();
+      Status = NFCSTATUS_SHUTDOWN;
+   }
 
+   if (NFCSTATUS_SHUTDOWN == Status)
+   {
+      /* Save context in local variables */
+      pfSendCB = LlcpMac->MacSend_Cb;
+      pSendContext = LlcpMac->MacSend_Context;
+
+      /* Reset the pointer to the Send Callback */
+      LlcpMac->MacSend_Cb = NULL;
+      LlcpMac->MacSend_Context = NULL;
+
+      /* Reset Send and Receive Flag */
+      LlcpMac->SendPending = FALSE;
+      LlcpMac->RecvPending = FALSE;
+   }
+
+#endif /* #ifdef LLCP_CHANGES */
+
+   phFriNfc_LlcpMac_Nfcip_TriggerRecvCb(LlcpMac, Status);
+
+#ifdef LLCP_CHANGES
+
+   if (NFCSTATUS_SHUTDOWN == Status)
+   {
+       if ((LlcpMac->SendPending) && (NULL != pfSendCB))
+       {
+           pfSendCB(pSendContext, Status);
+      }
+   }
+   else
+
+#endif /* #ifdef LLCP_CHANGES */
+   {
    /* Test if a send is pending */
    if(LlcpMac->SendPending)
    {
-      Status = phFriNfc_LlcpMac_Nfcip_Send(LlcpMac,LlcpMac->psSendBuffer,LlcpMac->MacSend_Cb,LlcpMac->MacReceive_Context);
+      Status = phFriNfc_LlcpMac_Nfcip_Send(LlcpMac,LlcpMac->psSendBuffer,LlcpMac->MacSend_Cb,LlcpMac->MacSend_Context);
    }
+}
 }
 
 static void phFriNfc_LlcpMac_Nfcip_Transceive_Cb(void       *pContext,
                                                  NFCSTATUS   Status)
 {
    phFriNfc_LlcpMac_t               *LlcpMac = (phFriNfc_LlcpMac_t *)pContext;
-   phFriNfc_LlcpMac_Reveive_CB_t    pfReceiveCB;
-   void                             *pReceiveContext;
-   phFriNfc_LlcpMac_Send_CB_t       pfSendCB;
-   void                             *pSendContext;
 
-   /* Save context in local variables */
-   pfReceiveCB = LlcpMac->MacReceive_Cb;
-   pReceiveContext = LlcpMac->MacReceive_Context;
-   pfSendCB = LlcpMac->MacSend_Cb;
-   pSendContext = LlcpMac->MacSend_Context;
-
-   /* Reset the poniters to the Receive and Send Callback */
-   LlcpMac->MacReceive_Cb = NULL;
-   LlcpMac->MacReceive_Context = NULL;
-   LlcpMac->MacSend_Cb = NULL;
-   LlcpMac->MacSend_Context = NULL;
+#ifdef LLCP_CHANGES
+   if(gpphLibContext->LibNfcState.next_state
+                               == eLibNfcHalStateShutdown)
+   {
+      phLibNfc_Pending_Shutdown();
+      Status = NFCSTATUS_SHUTDOWN;
+   }
+#endif /* #ifdef LLCP_CHANGES */
 
    /* Reset Send and Receive Flag */
    LlcpMac->SendPending = FALSE;
    LlcpMac->RecvPending = FALSE;
 
    /* Call the callbacks */
-   pfSendCB(pSendContext, Status);
-   pfReceiveCB(pReceiveContext, Status, LlcpMac->psReceiveBuffer);
+   phFriNfc_LlcpMac_Nfcip_TriggerSendCb(LlcpMac, Status);
+   phFriNfc_LlcpMac_Nfcip_TriggerRecvCb(LlcpMac, Status);
 }
 
 static NFCSTATUS phFriNfc_LlcpMac_Nfcip_Send(phFriNfc_LlcpMac_t               *LlcpMac,

@@ -252,29 +252,10 @@ int phDal4Nfc_i2c_reset(long level)
     */
    if (level == 0) {
        LOGW("sleeping a little longer...");
-       usleep(10000);
+       usleep(50000);
    } else {
        usleep(10000);
    }
-
-   return ret;
-}
-
-/*-----------------------------------------------------------------------------
-
-FUNCTION: phDal4Nfc_i2c_write
-
-PURPOSE:  Put the PN544 in download mode, using the GPIO4 pin
-
------------------------------------------------------------------------------*/
-int phDal4Nfc_i2c_download(long level)
-{
-   int ret = NFCSTATUS_SUCCESS;
-
-   DAL_DEBUG("phDal4Nfc_i2c_download, GPIO4 level = %ld",level);
-
-   /* TODO: implement firmware download */  abort();
-   /* ret = ioctl(gI2cPortContext.nHandle, PN544_DOWNLOAD_CMD, level); */
 
    return ret;
 }

@@ -81,6 +81,14 @@ void phLibNfc_Ndef_Read_Cb(void* Context,NFCSTATUS status);
 STATIC 
 void phLibNfc_Ndef_format_Cb(void *Context,NFCSTATUS status);
 
+#ifdef LIBNFC_READONLY_NDEF
+STATIC
+void
+phLibNfc_Ndef_ReadOnly_Cb (
+    void        *p_context,
+    NFCSTATUS   status);
+#endif /* #ifdef LIBNFC_READONLY_NDEF */
+
 /* Response callback for Search Ndef Content */
 STATIC
 void phLibNfc_Ndef_SrchNdefCnt_Cb(void *context, NFCSTATUS status);
@@ -158,6 +166,13 @@ NFCSTATUS phLibNfc_Ndef_Read( phLibNfc_Handle                   hRemoteDevice,
         psRd->length = 0;
         RetVal = NFCSTATUS_SUCCESS;
     }
+#ifdef LLCP_TRANSACT_CHANGES
+    else if ((LLCP_STATE_RESET_INIT != gpphLibContext->llcp_cntx.sLlcpContext.state)
+            && (LLCP_STATE_CHECKED != gpphLibContext->llcp_cntx.sLlcpContext.state))
+    {
+        RetVal= NFCSTATUS_BUSY;
+    }
+#endif /* #ifdef LLCP_TRANSACT_CHANGES */
     else
     {
         gpphLibContext->psRemoteDevList->psRemoteDevInfo->SessionOpened = SESSION_OPEN;
@@ -285,8 +300,8 @@ void phLibNfc_Ndef_Read_Cb(void* Context,NFCSTATUS status)
         {
             gpphLibContext->status.GenCb_pending_status = FALSE;
             if (gpphLibContext->psBufferedAuth != NULL && gpphLibContext->ndef_cntx.psNdefMap != NULL) {
-		    gpphLibContext->psBufferedAuth->addr = (uint8_t)
-		    gpphLibContext->ndef_cntx.psNdefMap->StdMifareContainer.currentBlock;
+                   gpphLibContext->psBufferedAuth->addr = (uint8_t)
+                   gpphLibContext->ndef_cntx.psNdefMap->StdMifareContainer.currentBlock;
             }
 
             if(NFCSTATUS_FAILED == status )
@@ -401,6 +416,13 @@ NFCSTATUS phLibNfc_Ndef_Write(
     {
         RetVal = NFCSTATUS_NOT_ENOUGH_MEMORY;
     }
+#ifdef LLCP_TRANSACT_CHANGES
+    else if ((LLCP_STATE_RESET_INIT != gpphLibContext->llcp_cntx.sLlcpContext.state)
+            && (LLCP_STATE_CHECKED != gpphLibContext->llcp_cntx.sLlcpContext.state))
+    {
+        RetVal= NFCSTATUS_BUSY;
+    }
+#endif /* #ifdef LLCP_TRANSACT_CHANGES */
     else
     {
         uint8_t         cr_index = 0;
@@ -558,10 +580,15 @@ void phLibNfc_Ndef_Write_Cb(void* Context,NFCSTATUS status)
                                  gpphLibContext->ndef_cntx.NdefLength)
                 {
                     status = NFCSTATUS_NOT_ENOUGH_MEMORY;
-                }                
-            }			
-			else
-			{
+                }
+                else
+                {
+                    pLibNfc_Ctxt->ndef_cntx.NdefActualSize = 
+                                    pLibNfc_Ctxt->ndef_cntx.psUpperNdefMsg->length;
+                }
+            }           
+            else
+            {
                 gpphLibContext->LastTrancvSuccess = FALSE;
 				status = NFCSTATUS_FAILED;;
 			}
@@ -747,6 +774,13 @@ NFCSTATUS phLibNfc_Ndef_CheckNdef(phLibNfc_Handle       hRemoteDevice,
     {       
         RetVal=NFCSTATUS_INVALID_HANDLE;        
     }
+#ifdef LLCP_TRANSACT_CHANGES
+    else if ((LLCP_STATE_RESET_INIT != gpphLibContext->llcp_cntx.sLlcpContext.state)
+            && (LLCP_STATE_CHECKED != gpphLibContext->llcp_cntx.sLlcpContext.state))
+    {
+        RetVal= NFCSTATUS_BUSY;
+    }
+#endif /* #ifdef LLCP_TRANSACT_CHANGES */
     else
     {
         uint8_t     cr_index = 0;
@@ -835,6 +869,7 @@ void phLibNfc_Ndef_CheckNdef_Cb(void *pContext,NFCSTATUS status)
 
     Ndef_Info.ActualNdefMsgLength = 0;
     Ndef_Info.MaxNdefMsgLength = 0;
+    Ndef_Info.NdefCardState = PHLIBNFC_NDEF_CARD_INVALID;
     if(pLibNfc_Ctxt != gpphLibContext)
     {    /*wrong context returned from below layer*/
         phOsalNfc_RaiseException(phOsalNfc_e_InternalErr,1);
@@ -968,6 +1003,39 @@ void phLibNfc_Ndef_CheckNdef_Cb(void *pContext,NFCSTATUS status)
             gpphLibContext->CBInfo.pClientCkNdefCntx = NULL;
             if(NULL != pClientCb)
             {
+                if (!RetStatus)
+                {
+                    switch (pLibNfc_Ctxt->ndef_cntx.psNdefMap->CardState)
+                    {
+                        case PH_NDEFMAP_CARD_STATE_INITIALIZED:
+                        {
+                            Ndef_Info.NdefCardState = 
+                                            PHLIBNFC_NDEF_CARD_INITIALISED;
+                            break;
+                        }
+
+                        case PH_NDEFMAP_CARD_STATE_READ_ONLY:
+                        {
+                            Ndef_Info.NdefCardState = 
+                                            PHLIBNFC_NDEF_CARD_READ_ONLY;
+                            break;
+                        }
+
+                        case PH_NDEFMAP_CARD_STATE_READ_WRITE:
+                        {
+                            Ndef_Info.NdefCardState = 
+                                            PHLIBNFC_NDEF_CARD_READ_WRITE;
+                            break;
+                        }
+
+                        default:
+                        {
+                            Ndef_Info.NdefCardState = 
+                                            PHLIBNFC_NDEF_CARD_INVALID;
+                            break;
+                        }
+                    }
+                }
                 /* call the upper check ndef callback */
                 pClientCb(pUpperLayerContext,Ndef_Info,RetStatus);
             }
@@ -1047,6 +1115,7 @@ STATIC void phLibNfc_Ndef_ChkNdef_Pchk_Cb(void   *pContext,
         gpphLibContext->CBInfo.pClientCkNdefCntx = NULL;
         if(NULL != pClientCb)
         {
+            Ndef_Info.NdefCardState = PHLIBNFC_NDEF_CARD_INVALID;
             /* call the upper check ndef callback */
             pClientCb(pUpperLayerContext,Ndef_Info,RetStatus);
         }
@@ -1123,6 +1192,9 @@ void phLibNfc_Reconnect_Mifare_Cb (
         }
         break;
         case NdefFmt:
+#ifdef LIBNFC_READONLY_NDEF
+        case NdefReadOnly:
+#endif /* #ifdef LIBNFC_READONLY_NDEF */
         {
             pphLibNfc_RspCb_t       pClientCb =
                            pLibNfc_Ctxt->ndef_cntx.pClientNdefFmtCb;  
@@ -1214,6 +1286,13 @@ NFCSTATUS phLibNfc_RemoteDev_FormatNdef(phLibNfc_Handle         hRemoteDevice,
         RetVal = NFCSTATUS_REJECTED;
         PHDBG_INFO("LIbNfc:Previous Callback is Pending");
     }
+#ifdef LLCP_TRANSACT_CHANGES
+    else if ((LLCP_STATE_RESET_INIT != gpphLibContext->llcp_cntx.sLlcpContext.state)
+            && (LLCP_STATE_CHECKED != gpphLibContext->llcp_cntx.sLlcpContext.state))
+    {
+        RetVal= NFCSTATUS_BUSY;
+    }
+#endif /* #ifdef LLCP_TRANSACT_CHANGES */
     else
     {
         uint8_t   fun_id;       
@@ -1259,6 +1338,175 @@ NFCSTATUS phLibNfc_RemoteDev_FormatNdef(phLibNfc_Handle         hRemoteDevice,
     }
     return RetVal;
 }
+
+#ifdef LIBNFC_READONLY_NDEF
+
+NFCSTATUS
+phLibNfc_ConvertToReadOnlyNdef (
+    phLibNfc_Handle         hRemoteDevice,
+    pphLibNfc_RspCb_t       pNdefReadOnly_RspCb,
+    void*                   pContext
+    )
+{
+    NFCSTATUS           ret_val = NFCSTATUS_FAILED;
+
+    if ((NULL == gpphLibContext)
+        || (gpphLibContext->LibNfcState.cur_state
+                            == eLibNfcHalStateShutdown))
+    {
+        /* LibNfc not initialized */
+        ret_val = NFCSTATUS_NOT_INITIALISED;
+    }
+    else if ((NULL == pContext)
+        || (NULL == pNdefReadOnly_RspCb)
+        || (0 == hRemoteDevice))
+    {
+        ret_val = NFCSTATUS_INVALID_PARAMETER;
+    }
+    else if (gpphLibContext->LibNfcState.next_state
+            == eLibNfcHalStateShutdown)
+    {
+        ret_val = NFCSTATUS_SHUTDOWN;
+    }
+    else if (0 == gpphLibContext->Connected_handle)
+    {
+        ret_val = NFCSTATUS_TARGET_NOT_CONNECTED;
+    }
+    else if (hRemoteDevice != gpphLibContext->Connected_handle)
+    {
+        ret_val = NFCSTATUS_INVALID_HANDLE;
+    }
+    else if ((TRUE == gpphLibContext->status.GenCb_pending_status)
+        || (NULL != gpphLibContext->ndef_cntx.pClientNdefFmtCb)
+        || (FALSE == gpphLibContext->ndef_cntx.is_ndef))
+    {
+        /* Previous Callback is Pending */
+        ret_val = NFCSTATUS_REJECTED;
+        PHDBG_INFO("LIbNfc:Previous Callback is Pending");
+    }
+    else if (PH_NDEFMAP_CARD_STATE_READ_WRITE != 
+            gpphLibContext->ndef_cntx.psNdefMap->CardState)
+    {
+        /* Tag is in different state */
+        ret_val = NFCSTATUS_REJECTED;
+    }
+    else
+    {
+        gpphLibContext->ndef_cntx.eLast_Call = NdefReadOnly;
+
+        if(eLibNfcHalStatePresenceChk != gpphLibContext->LibNfcState.next_state)
+        {
+            phHal_sRemoteDevInformation_t           *ps_rem_dev_info = 
+                                                (phHal_sRemoteDevInformation_t *)hRemoteDevice;
+            uint8_t                                 fun_id;
+
+            switch (ps_rem_dev_info->RemDevType)
+            {
+                case phHal_eMifare_PICC:
+                case phHal_eISO14443_A_PICC:
+                {
+                    if ((phHal_eMifare_PICC == ps_rem_dev_info->RemDevType) 
+                        && (0x00 != ps_rem_dev_info->RemoteDevInfo.Iso14443A_Info.Sak))
+                    {
+                        /* Mifare classic 1k/4k not supported */
+                        ret_val = NFCSTATUS_REJECTED;
+                    }
+                    else
+                    {   
+                        gpphLibContext->ndef_cntx.NdefSendRecvLen = NDEF_SENDRCV_BUF_LEN;
+
+                        /* Call ndef format reset, this will initialize the ndef
+                        format structure, and appropriate values are filled */
+                        ret_val = phFriNfc_NdefSmtCrd_Reset (gpphLibContext->ndef_cntx.ndef_fmt,
+                                                gpphLibContext->psOverHalCtxt,
+                                                (phHal_sRemoteDevInformation_t*)hRemoteDevice,
+                                                gpphLibContext->psDevInputParam,
+                                                gpphLibContext->ndef_cntx.psNdefMap->SendRecvBuf,
+                                                &(gpphLibContext->ndef_cntx.NdefSendRecvLen));
+
+                        for(fun_id = 0; fun_id < PH_FRINFC_SMTCRDFMT_CR; fun_id++)
+                        {
+                            /* Register for all the callbacks */
+                            ret_val = phFriNfc_NdefSmtCrd_SetCR (gpphLibContext->ndef_cntx.ndef_fmt,
+                                                                fun_id, phLibNfc_Ndef_ReadOnly_Cb,
+                                                                gpphLibContext);
+                        }
+
+                        /* Start smart card formatting function   */
+                        ret_val = phFriNfc_NdefSmtCrd_ConvertToReadOnly (
+                                                        gpphLibContext->ndef_cntx.ndef_fmt);
+                        ret_val = PHNFCSTATUS(ret_val);
+                    }
+                    break;
+                }
+
+                case phHal_eJewel_PICC:
+                {
+// MC: Got the feedback this was #if 0'd because it was resetting the lock bits
+// read in check NDEF, and these should not be reset here already.
+#if 0
+                    static uint16_t     data_cnt = 0;
+
+                    /* Resets the component instance */
+                    ret_val = phFriNfc_NdefMap_Reset (gpphLibContext->ndef_cntx.psNdefMap,
+                                        gpphLibContext->psOverHalCtxt,
+                                        (phLibNfc_sRemoteDevInformation_t*)hRemoteDevice,
+                                        gpphLibContext->psDevInputParam,
+                                        gpphLibContext->ndef_cntx.psNdefMap->SendRecvBuf,
+                                        gpphLibContext->ndef_cntx.NdefSendRecvLen,
+                                        gpphLibContext->ndef_cntx.psNdefMap->SendRecvBuf,
+                                        &(gpphLibContext->ndef_cntx.NdefSendRecvLen),
+                                        &(data_cnt));
+#endif /* #if 0 */
+
+
+                    for (fun_id = 0; fun_id < PH_FRINFC_NDEFMAP_CR; fun_id++)
+                    {
+                        /* Register the callback for the check ndef */
+                        ret_val = phFriNfc_NdefMap_SetCompletionRoutine (
+                                            gpphLibContext->ndef_cntx.psNdefMap,
+                                            fun_id, phLibNfc_Ndef_ReadOnly_Cb,
+                                            (void *)gpphLibContext);
+                    }
+
+                    /* call below layer check Ndef function */
+                    ret_val = phFriNfc_NdefMap_ConvertToReadOnly (
+                                            gpphLibContext->ndef_cntx.psNdefMap);
+                    ret_val = PHNFCSTATUS(ret_val);
+                    break;
+                }
+
+                default:
+                {
+                    /* Tag not supported */
+                    ret_val = NFCSTATUS_REJECTED;
+                    break;
+                }
+            }            
+        }
+        else
+        {
+             gpphLibContext->ndef_cntx.pClientNdefFmtCb= NULL;
+             ret_val = NFCSTATUS_PENDING;
+        }
+
+        if (NFCSTATUS_PENDING == ret_val)
+        {
+            gpphLibContext->ndef_cntx.pClientNdefFmtCb = pNdefReadOnly_RspCb;
+            gpphLibContext->ndef_cntx.pClientNdefFmtCntx = pContext;
+
+            gpphLibContext->status.GenCb_pending_status = TRUE;
+            gpphLibContext->LibNfcState.next_state = eLibNfcHalStateTransaction;
+        }
+        else
+        {
+            ret_val = NFCSTATUS_FAILED;
+        }
+    }
+    return ret_val;
+}
+
+#endif /* #ifdef LIBNFC_READONLY_NDEF */
 
 /**
 * Response callback for NDEF format.
@@ -1336,6 +1584,69 @@ void phLibNfc_Ndef_format_Cb(void *Context,NFCSTATUS  status)
     }
     return;
 }
+
+#ifdef LIBNFC_READONLY_NDEF
+STATIC
+void
+phLibNfc_Ndef_ReadOnly_Cb (
+    void        *p_context,
+    NFCSTATUS   status)
+{
+    NFCSTATUS                       ret_status = NFCSTATUS_SUCCESS;
+    pphLibNfc_RspCb_t               p_client_cb = NULL;
+    phLibNfc_LibContext_t           *pLibNfc_Ctxt = (phLibNfc_LibContext_t *)p_context;
+    void                            *p_upper_layer_ctxt = NULL;
+
+    if(pLibNfc_Ctxt != gpphLibContext)
+    {
+        /*wrong context returned*/
+        phOsalNfc_RaiseException(phOsalNfc_e_InternalErr,1);
+    }
+    else
+    {
+        if(eLibNfcHalStateShutdown == gpphLibContext->LibNfcState.next_state)
+        {
+            /*shutdown is pending so issue shutdown*/
+            phLibNfc_Pending_Shutdown();
+            ret_status = NFCSTATUS_SHUTDOWN;
+        }
+        else if(eLibNfcHalStateRelease == gpphLibContext->LibNfcState.next_state)
+        {
+            ret_status = NFCSTATUS_ABORTED;
+        }
+        else
+        {
+            gpphLibContext->status.GenCb_pending_status = FALSE;
+            if(NFCSTATUS_SUCCESS == status)
+            {
+                gpphLibContext->ndef_cntx.psNdefMap->CardState = 
+                                                PH_NDEFMAP_CARD_STATE_READ_ONLY;
+                ret_status = NFCSTATUS_SUCCESS;
+            }
+            else
+            {
+                ret_status = NFCSTATUS_FAILED;
+            }
+            gpphLibContext->LibNfcState.cur_state =eLibNfcHalStateConnect;
+        }
+
+        phLibNfc_UpdateCurState(status, gpphLibContext);
+
+        p_client_cb = gpphLibContext->ndef_cntx.pClientNdefFmtCb;
+        p_upper_layer_ctxt = gpphLibContext->ndef_cntx.pClientNdefFmtCntx;
+        gpphLibContext->ndef_cntx.pClientNdefFmtCb = NULL;
+        gpphLibContext->ndef_cntx.pClientNdefFmtCntx = NULL;
+        if(NFCSTATUS_PENDING != ret_status)
+        {
+            if (NULL != p_client_cb)
+            {
+                /* Call the tag format upper layer callback */
+                p_client_cb (p_upper_layer_ctxt, ret_status);
+            }
+        }
+    }
+}
+#endif /* #ifdef LIBNFC_READONLY_NDEF */
 
 STATIC
 void phLibNfc_Ndef_SrchNdefCnt_Cb(void *context, NFCSTATUS status)

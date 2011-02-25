@@ -93,8 +93,64 @@ static NFCSTATUS phFriNfc_Llcp_InternalSend( phFriNfc_Llcp_t                    
                                              phNfc_sData_t                      *psInfo );
 static bool_t phFriNfc_Llcp_HandlePendingSend ( phFriNfc_Llcp_t *Llcp );
 
+static phNfc_sData_t * phFriNfc_Llcp_AllocateAndCopy(phNfc_sData_t * pOrig)
+{
+   phNfc_sData_t * pDest = NULL;
+
+   if (pOrig == NULL)
+   {
+       return NULL;
+   }
+
+   pDest = phOsalNfc_GetMemory(sizeof(phNfc_sData_t));
+   if (pDest == NULL)
+   {
+      goto error;
+   }
+
+   pDest->buffer = phOsalNfc_GetMemory(pOrig->length);
+   if (pDest->buffer == NULL)
+   {
+      goto error;
+   }
+
+   memcpy(pDest->buffer, pOrig->buffer, pOrig->length);
+   pDest->length = pOrig->length;
+
+   return pDest;
+
+error:
+   if (pDest != NULL)
+   {
+      if (pDest->buffer != NULL)
+      {
+         phOsalNfc_FreeMemory(pDest->buffer);
+      }
+      phOsalNfc_FreeMemory(pDest);
+   }
+   return NULL;
+}
+
+static void phFriNfc_Llcp_Deallocate(phNfc_sData_t * pData)
+{
+   if (pData != NULL)
+   {
+      if (pData->buffer != NULL)
+      {
+         phOsalNfc_FreeMemory(pData->buffer);
+      }
+      else
+      {
+         LLCP_PRINT("Warning, deallocating empty buffer");
+      }
+      phOsalNfc_FreeMemory(pData);
+   }
+}
+
 static NFCSTATUS phFriNfc_Llcp_InternalDeactivate( phFriNfc_Llcp_t *Llcp )
 {
+   phFriNfc_Llcp_Send_CB_t pfSendCB;
+   void * pSendContext;
    if ((Llcp->state == PHFRINFC_LLCP_STATE_OPERATION_RECV) ||
        (Llcp->state == PHFRINFC_LLCP_STATE_OPERATION_SEND) ||
        (Llcp->state == PHFRINFC_LLCP_STATE_PAX)            ||
@@ -105,6 +161,26 @@ static NFCSTATUS phFriNfc_Llcp_InternalDeactivate( phFriNfc_Llcp_t *Llcp )
 
       /* Stop timer */
       phOsalNfc_Timer_Stop(Llcp->hSymmTimer);
+
+      /* Return delayed send operation in error, in any */
+      if (Llcp->psSendInfo != NULL)
+      {
+         phFriNfc_Llcp_Deallocate(Llcp->psSendInfo);
+         Llcp->psSendInfo = NULL;
+         Llcp->psSendHeader = NULL;
+         Llcp->psSendSequence = NULL;
+      }
+      if (Llcp->pfSendCB != NULL)
+      {
+         /* Get Callback params */
+         pfSendCB = Llcp->pfSendCB;
+         pSendContext = Llcp->pSendContext;
+         /* Reset callback params */
+         Llcp->pfSendCB = NULL;
+         Llcp->pSendContext = NULL;
+         /* Call the callback */
+         (pfSendCB)(pSendContext, NFCSTATUS_FAILED);
+      }
 
       /* Notify service layer */
       Llcp->pfLink_CB(Llcp->pLinkContext, phFriNfc_LlcpMac_eLinkDeactivated);
@@ -785,6 +861,8 @@ static bool_t phFriNfc_Llcp_HandlePendingSend ( phFriNfc_Llcp_t *Llcp )
    phFriNfc_Llcp_sPacketSequence_t  *psSendSequence = NULL;
    phNfc_sData_t                    *psSendInfo = NULL;
    NFCSTATUS                        result;
+   uint8_t                          bDeallocate = FALSE;
+   uint8_t                          return_value = FALSE;
 
    /* Handle pending disconnection request */
    if (Llcp->bDiscPendingFlag == TRUE)
@@ -821,6 +899,7 @@ static bool_t phFriNfc_Llcp_HandlePendingSend ( phFriNfc_Llcp_t *Llcp )
       Llcp->psSendHeader = NULL;
       Llcp->psSendSequence = NULL;
       Llcp->psSendInfo = NULL;
+      bDeallocate = TRUE;
    }
 
    /* Perform send, if needed */
@@ -832,11 +911,16 @@ static bool_t phFriNfc_Llcp_HandlePendingSend ( phFriNfc_Llcp_t *Llcp )
          /* Error: send failed, impossible to recover */
          phFriNfc_Llcp_InternalDeactivate(Llcp);
       }
-      return TRUE;
+      return_value = TRUE;
    }
 
-   /* Nothing to do */
-   return FALSE;
+clean_and_return:
+   if (bDeallocate)
+   {
+       phFriNfc_Llcp_Deallocate(psSendInfo);
+   }
+
+   return return_value;
 }
 
 static NFCSTATUS phFriNfc_Llcp_HandleIncomingPacket( phFriNfc_Llcp_t    *Llcp,
@@ -877,6 +961,17 @@ static void phFriNfc_Llcp_Receive_CB( void               *pContext,
    NFCSTATUS                     result = NFCSTATUS_SUCCESS;
    phFriNfc_Llcp_sPacketHeader_t sPacketHeader;
 
+   /* Check reception status and for pending disconnection */
+   if ((status != NFCSTATUS_SUCCESS) || (Llcp->bDiscPendingFlag == TRUE))
+   {
+	  LLCP_DEBUG("\nReceived LLCP packet error - status = 0x%04x", status);
+      /* Reset disconnection operation */
+      Llcp->bDiscPendingFlag = FALSE;
+      /* Deactivate the link */
+      phFriNfc_Llcp_InternalDeactivate(Llcp);
+      return;
+   }
+
    /* Parse header */
    phFriNfc_Llcp_Buffer2Header(psData->buffer, 0, &sPacketHeader);
 
@@ -889,15 +984,6 @@ static void phFriNfc_Llcp_Receive_CB( void               *pContext,
       LLCP_PRINT("?");
    }
 
-   /* Check reception status and for pending disconnection */
-   if ((status != NFCSTATUS_SUCCESS) || (Llcp->bDiscPendingFlag == TRUE))
-   {
-      /* Reset disconnection operation */
-      Llcp->bDiscPendingFlag = FALSE;
-      /* Deactivate the link */
-      phFriNfc_Llcp_InternalDeactivate(Llcp);
-      return;
-   }
 
    /* Check new link status */
    switch(Llcp->state)
@@ -962,14 +1048,6 @@ static void phFriNfc_Llcp_Send_CB( void               *pContext,
    phFriNfc_Llcp_Send_CB_t          pfSendCB;
    void                             *pSendContext;
 
-   /* Check reception status */
-   if (status != NFCSTATUS_SUCCESS)
-   {
-      /* Error: Reception failed, link must be down */
-      phFriNfc_Llcp_InternalDeactivate(Llcp);
-      return;
-   }
-
    /* Call the upper layer callback if last packet sent was  */
    /* NOTE: if Llcp->psSendHeader is not NULL, this means that the send operation is still not initiated */
    if (Llcp->psSendHeader == NULL)
@@ -985,6 +1063,13 @@ static void phFriNfc_Llcp_Send_CB( void               *pContext,
          /* Call the callback */
          (pfSendCB)(pSendContext, status);
       }
+   }
+
+   /* Check reception status */
+   if (status != NFCSTATUS_SUCCESS)
+   {
+       /* Error: Reception failed, link must be down */
+       phFriNfc_Llcp_InternalDeactivate(Llcp);
    }
 }
 
@@ -1335,18 +1420,23 @@ NFCSTATUS phFriNfc_Llcp_Send( phFriNfc_Llcp_t                  *Llcp,
    Llcp->pfSendCB = pfSend_CB;
    Llcp->pSendContext = pContext;
 
-   if (Llcp->state != PHFRINFC_LLCP_STATE_OPERATION_SEND)
+   if (Llcp->state == PHFRINFC_LLCP_STATE_OPERATION_SEND)
+   {
+      /* Ready to send */
+      result = phFriNfc_Llcp_InternalSend(Llcp, psHeader, psSequence, psInfo);
+   }
+   else if (Llcp->state == PHFRINFC_LLCP_STATE_OPERATION_RECV)
    {
       /* Not ready to send, save send params for later use */
       Llcp->psSendHeader = psHeader;
       Llcp->psSendSequence = psSequence;
-      Llcp->psSendInfo = psInfo;
+      Llcp->psSendInfo = phFriNfc_Llcp_AllocateAndCopy(psInfo);
       result = NFCSTATUS_PENDING;
    }
    else
    {
-      /* No send pending, send immediately */
-      result = phFriNfc_Llcp_InternalSend(Llcp, psHeader, psSequence, psInfo);
+      /* Incorrect state for sending ! */
+      result = PHNFCSTVAL(CID_FRI_NFC_LLCP, NFCSTATUS_INVALID_STATE);;
    }
    return result;
 }

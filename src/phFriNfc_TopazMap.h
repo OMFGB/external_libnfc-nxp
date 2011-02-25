@@ -20,10 +20,10 @@
  *
  * Project: NFC-FRI
  *
- * $Date: Tue Mar 30 11:51:44 2010 $
+ * $Date: Mon Dec 13 14:14:14 2010 $
  * $Author: ing02260 $
- * $Revision: 1.24 $
- * $Aliases: NFC_FRI1.1_WK1007_R33_4,NFC_FRI1.1_WK1017_PREP1,NFC_FRI1.1_WK1017_R34_1,NFC_FRI1.1_WK1017_R34_2,NFC_FRI1.1_WK1023_R35_1 $
+ * $Revision: 1.26 $
+ * $Aliases:  $
  *
  */
 
@@ -31,16 +31,18 @@
 #define PHFRINFC_TOPAZMAP_H
 
 #include <phFriNfc.h>
-#if !defined PH_HAL4_ENABLE
+#ifdef PH_HAL4_ENABLE
 #include <phHal4Nfc.h>
+#else
+#include <phHalNfc.h>
 #endif
 #include <phNfcStatus.h>
 #include <phNfcTypes.h>
 #include <phFriNfc_NdefMap.h>
 
 
-#define PH_FRINFC_NDEFMAP_TOPAZMAP_FILEREVISION "$Revision: 1.24 $"
-#define PH_FRINFC_NDEFMAP_TOPAZMAP_FILEALIASES  "$Aliases: NFC_FRI1.1_WK1007_R33_4,NFC_FRI1.1_WK1017_PREP1,NFC_FRI1.1_WK1017_R34_1,NFC_FRI1.1_WK1017_R34_2,NFC_FRI1.1_WK1023_R35_1 $"
+#define PH_FRINFC_NDEFMAP_TOPAZMAP_FILEREVISION "$Revision: 1.26 $"
+#define PH_FRINFC_NDEFMAP_TOPAZMAP_FILEALIASES  "$Aliases:  $"
 
 #if !defined (ES_HW_VER)
 
@@ -57,6 +59,8 @@
 
 #endif /* #if (ES_HW_VER == 32) */
 
+#define TOPAZ_UID_LENGTH_FOR_READ_WRITE                     0x04U
+
 /*!
  * \name Topaz - states of the Finite State machine
  *
@@ -70,6 +74,16 @@
 #define PH_FRINFC_TOPAZ_STATE_WRITE_NMN                   6   /*!< Write ndef magic number */
 #define PH_FRINFC_TOPAZ_STATE_WRITE_L_TLV                 7   /*!< Write length field of TLV */
 #define PH_FRINFC_TOPAZ_STATE_WR_CC_OR_TLV                8   /*!< Write CC or NDEF TLV */
+
+#ifdef FRINFC_READONLY_NDEF
+
+    #define PH_FRINFC_TOPAZ_STATE_WR_CC_BYTE               9   /*!< READ ONLY state */
+    #define PH_FRINFC_TOPAZ_STATE_RD_LOCK0_BYTE           10  /*!< read Lock byte 0 state */
+    #define PH_FRINFC_TOPAZ_STATE_WR_LOCK0_BYTE           11  /*!< write Lock byte 0 state */
+    #define PH_FRINFC_TOPAZ_STATE_RD_LOCK1_BYTE           12  /*!< read Lock byte 1 state */
+    #define PH_FRINFC_TOPAZ_STATE_WR_LOCK1_BYTE           13  /*!< write Lock byte 1 state */
+
+#endif /* #ifdef FRINFC_READONLY_NDEF */
 /*@}*/
 
 /*!
@@ -222,6 +236,30 @@ enum
  *        Remote Device).
  */
 void phFriNfc_TopazMap_H_Reset(  phFriNfc_NdefMap_t        *NdefMap);
+
+#ifdef FRINFC_READONLY_NDEF
+
+/*!
+ * \ingroup grp_fri_smart_card_formatting
+ *
+ * \brief Initiates the conversion of the already NDEF formatted tag to READ ONLY.
+ *
+ * \copydoc page_ovr  The function initiates the conversion of the already NDEF formatted
+ * tag to READ ONLY.After this formation, remote card would be properly Ndef Compliant and READ ONLY.
+ * Depending upon the different card type, this function handles formatting procedure.
+ * This function supports only for the TOPAZ tags.
+ *
+ * \param[in] NdefMap Pointer to a valid instance of the \ref phFriNfc_NdefMap_t structure describing
+ *                    the component context.
+ * \retval  NFCSTATUS_PENDING   The action has been successfully triggered.
+ * \retval  Other values        An error has occurred.
+ *
+ */
+NFCSTATUS 
+phFriNfc_TopazMap_ConvertToReadOnly (
+    phFriNfc_NdefMap_t          *NdefMap);
+
+#endif /* #ifdef FRINFC_READONLY_NDEF */
 
 /*!
  * \brief \copydoc page_ovr Initiates Reading of NDEF information from the Remote Device.
@@ -559,6 +597,39 @@ NFCSTATUS phFriNfc_TopazDynamicMap_ChkNdef(    phFriNfc_NdefMap_t  *NdefMap);
  */
 void phFriNfc_TopazDynamicMap_Process( void        *Context,
                                 NFCSTATUS   Status);
+
+#ifdef FRINFC_READONLY_NDEF
+/*!
+ * \brief \copydoc page_ovr Initiates Writing of NDEF information to the Remote Device.
+ *
+ * The function initiates the writing of NDEF information to a Remote Device.
+ * It performs a reset of the state and starts the action (state machine).
+ * A periodic call of the \ref phFriNfc_NdefMap_Process has to be done once the action
+ * has been triggered.
+ *
+ * \param[in] psNdefMap Pointer to a valid instance of the \ref phFriNfc_NdefMap_t structure describing
+ *                    the component context.
+ *
+ *
+ * \retval NFCSTATUS_PENDING                        The action has been successfully triggered.
+ * \retval NFCSTATUS_INVALID_DEVICE_REQUEST         If Previous Operation is Write Ndef and Offset
+ *                                                  is Current then this error is displayed.
+ * \retval NFCSTATUS_EOF_NDEF_CONTAINER_REACHED               Last byte is written to the card after this
+ *                                                  no further writing is possible.
+ * \retval NFCSTATUS_SUCCESS                        Buffer provided by the user is completely written
+ *                                                  into the card.
+ * \retval NFCSTATUS_INVALID_DEVICE                 The device has not been opened or has been disconnected
+ *                                                  meanwhile.
+ * \retval NFCSTATUS_CMD_ABORTED                    The caller/driver has aborted the request.
+ * \retval NFCSTATUS_BUFFER_TOO_SMALL               The buffer provided by the caller is too small.
+ * \retval NFCSTATUS_RF_TIMEOUT                     No data has been received within the TIMEOUT period.
+ *
+ */
+NFCSTATUS
+phFriNfc_TopazDynamicMap_ConvertToReadOnly (
+    phFriNfc_NdefMap_t     *psNdefMap);
+#endif /* #ifdef FRINFC_READONLY_NDEF */
+
    
 
 #endif /* PHFRINFC_TOPAZMAP_H */

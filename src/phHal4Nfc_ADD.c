@@ -103,7 +103,11 @@ NFCSTATUS phHal4Nfc_ConfigParameters(
             else
             {
                 /*Register Upper layer context*/
+#ifdef LLCP_DISCON_CHANGES
+                Hal4Ctxt->sUpperLayerInfo.psUpperLayerCfgDiscCtxt = pContext;
+#else /* #ifdef LLCP_DISCON_CHANGES */
                 Hal4Ctxt->sUpperLayerInfo.psUpperLayerCtxt = pContext;
+#endif /* #ifdef LLCP_DISCON_CHANGES */
                 switch(CfgType)
                 {
                 /*NFC_EMULATION_CONFIG*/
@@ -122,7 +126,7 @@ NFCSTATUS phHal4Nfc_ConfigParameters(
                       in general bytes*/
                     if(puConfig->nfcIPConfig.generalBytesLength == 0)
                     {
-                        Hal4Ctxt->uConfig.nfcIPConfig.generalBytesLength = 0x30;
+                        Hal4Ctxt->uConfig.nfcIPConfig.generalBytesLength = 0x00;
                         (void)memset(Hal4Ctxt->uConfig.nfcIPConfig.generalBytes,
                                     0,Hal4Ctxt->uConfig.nfcIPConfig.generalBytesLength
                                     );
@@ -244,7 +248,11 @@ NFCSTATUS phHal4Nfc_ConfigureDiscovery(
             else
             {
                 /*Register Upper layer context*/
+#ifdef LLCP_DISCON_CHANGES
+                Hal4Ctxt->sUpperLayerInfo.psUpperLayerCfgDiscCtxt = pContext;
+#else /* #ifdef LLCP_DISCON_CHANGES */
                 Hal4Ctxt->sUpperLayerInfo.psUpperLayerCtxt = pContext;
+#endif /* #ifdef LLCP_DISCON_CHANGES */
                 switch(discoveryMode)
                 {
                 case NFC_DISCOVERY_START:
@@ -371,7 +379,12 @@ void phHal4Nfc_ConfigureComplete(phHal4Nfc_Hal4Ctxt_t  *Hal4Ctxt,
             Hal4Ctxt->Hal4NextState = eHal4StateInvalid;
             Hal4Ctxt->sUpperLayerInfo.pConfigCallback = NULL;
             (*pConfigCallback)(
-                Hal4Ctxt->sUpperLayerInfo.psUpperLayerCtxt,Status
+#ifdef LLCP_DISCON_CHANGES
+                Hal4Ctxt->sUpperLayerInfo.psUpperLayerCfgDiscCtxt,
+#else /* #ifdef LLCP_DISCON_CHANGES */
+                Hal4Ctxt->sUpperLayerInfo.psUpperLayerCtxt,
+#endif /* #ifdef LLCP_DISCON_CHANGES */
+                Status
                 );
 #ifdef MERGE_SAK_SW2
         }
@@ -453,12 +466,21 @@ void phHal4Nfc_TargetDiscoveryComplete(
                         Count++;
                     }
                     /*Check for Mifare Supported*/
-                    else if(Sak & MIFARE_BITMASK)
+                    switch( Sak )
                     {
+                      case 0x09: // Mini
+                      case 0x08: // 1K
+                      case 0x18: // 4K
+                      case 0x88: // Infineon 1K
+                      case 0x98: // Pro 4K
+                      case 0xB8: // Pro 4K
+                      case 0x28: // 1K emulation
+                      case 0x38: // 4K emulation
                         aRemoteDevTypes[Count] = phHal_eMifare_PICC;
                         Count++;
+                        break;
                     }
-                    else if((0 == Sak)&& (0 == Count))
+                    if((0 == Sak)&& (0 == Count))
                     {
                         /*Mifare check*/
                         if((NXP_UID == 
@@ -476,7 +498,7 @@ void phHal4Nfc_TargetDiscoveryComplete(
                         Count++;
                     }
                     else if ( !(Sak & ISO_14443_BITMASK) &&
-                              !(Sak & NFCIP_BITMASK) )
+                          !(Sak & NFCIP_BITMASK) && (0 == Count))
                     {
                         aRemoteDevTypes[Count] = phHal_eISO14443_3A_PICC;
                         Count++;
@@ -488,8 +510,19 @@ void phHal4Nfc_TargetDiscoveryComplete(
                     (Hal4Ctxt->psADDCtxtInfo->sADDCfg.NfcIP_Mode 
                     & phHal_ePassive106))
                 {
+                  if( Sak == 0x53 // Fudan card incompatible to ISO18092
+                      && psRemoteDevInfo->RemoteDevInfo.Iso14443A_Info.AtqA[0] == 0x04
+                      && psRemoteDevInfo->RemoteDevInfo.Iso14443A_Info.AtqA[1] == 0x00
+                    )
+                  {
+                    aRemoteDevTypes[Count] = phHal_eISO14443_3A_PICC;
+                    Count++;
+                  }
+                  else
+                  {
                     aRemoteDevTypes[Count] = phHal_eNfcIP1_Target;
                     Count++;
+									}
                 }
             }/*case phHal_eISO14443_A_PICC:*/
                 break;

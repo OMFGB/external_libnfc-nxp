@@ -62,8 +62,6 @@ typedef enum phFriNfc_LlcpTransportSocket_eSocketState
    phFriNfc_LlcpTransportSocket_eSocketDisconnected,
    phFriNfc_LlcpTransportSocket_eSocketDisconnecting,
    phFriNfc_LlcpTransportSocket_eSocketRejected,
-   phFriNfc_LlcpTransportSocket_eSocketClosed,
-   phFriNfc_LlcpTransportSocket_eSocketClosing,
 }phFriNfc_LlcpTransportSocket_eSocketState_t;
 
 
@@ -248,6 +246,8 @@ struct phFriNfc_LlcpTransport
    phFriNfc_Llcp_sPacketSequence_t       sSequence;
 
   /**< Info field of pending DM packet*/
+   phFriNfc_Llcp_sPacketHeader_t         sDmHeader;
+   phNfc_sData_t                         sDmPayload;
    uint8_t                               DmInfoBuffer[3];
 
    uint8_t                               LinkStatusError;
@@ -266,6 +266,14 @@ struct phFriNfc_LlcpTransport
 */
 NFCSTATUS phFriNfc_LlcpTransport_Reset (phFriNfc_LlcpTransport_t      *pLlcpSocketTable,
                                         phFriNfc_Llcp_t               *pLlcp);
+
+
+/**
+* \ingroup grp_fri_nfc
+* \brief <b>Close all existing sockets</b>.
+*
+*/
+NFCSTATUS phFriNfc_LlcpTransport_CloseAll (phFriNfc_LlcpTransport_t  *pLlcpSocketTable);
 
 
 /**

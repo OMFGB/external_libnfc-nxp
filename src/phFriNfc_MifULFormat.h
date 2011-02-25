@@ -20,10 +20,10 @@
  *
  * Project: NFC-FRI
  *
- * $Date: Wed Jun  3 14:38:25 2009 $
- * $Author: ing07336 $
- * $Revision: 1.4 $
- * $Aliases: NFC_FRI1.1_WK924_PREP1,NFC_FRI1.1_WK924_R27_1,NFC_FRI1.1_WK926_R28_1,NFC_FRI1.1_WK928_R29_1,NFC_FRI1.1_WK930_R30_1,NFC_FRI1.1_WK934_PREP_1,NFC_FRI1.1_WK934_R31_1,NFC_FRI1.1_WK941_PREP1,NFC_FRI1.1_WK941_PREP2,NFC_FRI1.1_WK941_1,NFC_FRI1.1_WK943_R32_1,NFC_FRI1.1_WK949_PREP1,NFC_FRI1.1_WK943_R32_10,NFC_FRI1.1_WK943_R32_13,NFC_FRI1.1_WK943_R32_14,NFC_FRI1.1_WK1007_R33_1,NFC_FRI1.1_WK1007_R33_4,NFC_FRI1.1_WK1017_PREP1,NFC_FRI1.1_WK1017_R34_1,NFC_FRI1.1_WK1017_R34_2,NFC_FRI1.1_WK1023_R35_1 $
+ * $Date: Mon Dec 13 14:14:12 2010 $
+ * $Author: ing02260 $
+ * $Revision: 1.5 $
+ * $Aliases:  $
  *
  */
 
@@ -44,8 +44,8 @@
 #include <phFriNfc_NdefMap.h>
 #endif /* #ifdef PH_NDEF_MIFARE_ULC */
 
-#define PH_FRINFC_MIFUL_FORMAT_FILEREVISION "$Revision: 1.4 $"
-#define PH_FRINFC_MIFUL_FORMAT_FILEALIASES  "$Aliases: NFC_FRI1.1_WK924_PREP1,NFC_FRI1.1_WK924_R27_1,NFC_FRI1.1_WK926_R28_1,NFC_FRI1.1_WK928_R29_1,NFC_FRI1.1_WK930_R30_1,NFC_FRI1.1_WK934_PREP_1,NFC_FRI1.1_WK934_R31_1,NFC_FRI1.1_WK941_PREP1,NFC_FRI1.1_WK941_PREP2,NFC_FRI1.1_WK941_1,NFC_FRI1.1_WK943_R32_1,NFC_FRI1.1_WK949_PREP1,NFC_FRI1.1_WK943_R32_10,NFC_FRI1.1_WK943_R32_13,NFC_FRI1.1_WK943_R32_14,NFC_FRI1.1_WK1007_R33_1,NFC_FRI1.1_WK1007_R33_4,NFC_FRI1.1_WK1017_PREP1,NFC_FRI1.1_WK1017_R34_1,NFC_FRI1.1_WK1017_R34_2,NFC_FRI1.1_WK1023_R35_1 $"
+#define PH_FRINFC_MIFUL_FORMAT_FILEREVISION "$Revision: 1.5 $"
+#define PH_FRINFC_MIFUL_FORMAT_FILEALIASES  "$Aliases:  $"
 
 
 /*!
@@ -53,13 +53,26 @@
  *
  */
 /*@{*/
-#define PH_FRINFC_MFUL_FMT_RESET_INIT          0 /*!< Reset state */
-#define PH_FRINFC_MFUL_FMT_RD_16BYTES          1 /*!< Read 16 bytes */
-#define PH_FRINFC_MFUL_FMT_WR_OTPBYTES         2 /*!< Write OTP bytes */
-#define PH_FRINFC_MFUL_FMT_WR_TLV              3 /*!< Write TLV */  
+#define PH_FRINFC_MFUL_FMT_RESET_INIT               0 /*!< Reset state */
+#define PH_FRINFC_MFUL_FMT_RD_16BYTES               1 /*!< Read 16 bytes */
+#define PH_FRINFC_MFUL_FMT_WR_OTPBYTES              2 /*!< Write OTP bytes */
+#define PH_FRINFC_MFUL_FMT_WR_TLV                   3 /*!< Write TLV */  
 #ifdef PH_NDEF_MIFARE_ULC
-#define PH_FRINFC_MFUL_FMT_WR_TLV1             4 /*!< Write TLV (second part) */ 
-#endif	/* #ifdef PH_NDEF_MIFARE_ULC */
+#define PH_FRINFC_MFUL_FMT_WR_TLV1                  4 /*!< Write TLV (second part) */ 
+#endif  /* #ifdef PH_NDEF_MIFARE_ULC */
+#ifdef FRINFC_READONLY_NDEF
+#define PH_FRINFC_MFUL_FMT_RO_RD_16BYTES            5 /*!< Read only the tag */
+#define PH_FRINFC_MFUL_FMT_RO_WR_LOCK_BYTES         6 /*!< Write lock bytes to make the tag Read only */
+#define PH_FRINFC_MFUL_FMT_RO_WR_OTP_BYTES          7 /*!< Write OTP bytes to make the tag Read only */
+
+#ifdef PH_NDEF_MIFARE_ULC
+#define PH_FRINFC_MFUL_FMT_RO_RD_DYN_LOCK_BYTES     8 /*!< Read default dynamic lock bytes address */
+#define PH_FRINFC_MFUL_FMT_RO_WR_DYN_LOCK_BYTES     9 /*!< Write default dynamic lock bytes address */
+#define PH_FRINFC_MFUL_FMT_RO_PARSE_NDEF            10 /*!< Write default dynamic lock bytes address */
+#define PH_FRINFC_MFUL_FMT_RO_NDEF_PARSE_RD_BYTES   12 /*!< Read bytes from the card for parsing NDEF */
+#endif /* #ifdef PH_NDEF_MIFARE_ULC */
+
+#endif /* #ifdef FRINFC_READONLY_NDEF */
 
 /*@}*/
 
@@ -159,6 +172,29 @@ void phFriNfc_MfUL_Reset(phFriNfc_sNdefSmtCrdFmt_t    *NdefSmtCrdFmt);
  *
  */
 NFCSTATUS phFriNfc_MfUL_Format(phFriNfc_sNdefSmtCrdFmt_t    *NdefSmtCrdFmt);
+
+#ifdef FRINFC_READONLY_NDEF
+
+/*!
+ * \ingroup grp_fri_smart_card_formatting
+ *
+ * \brief Initiates the conversion of the already NDEF formatted tag to READ ONLY.
+ *
+ * \copydoc page_ovr  The function initiates the conversion of the already NDEF formatted
+ * tag to READ ONLY.After this formation, remote card would be properly Ndef Compliant and READ ONLY.
+ * Depending upon the different card type, this function handles formatting procedure.
+ *
+ * \param[in] phFriNfc_sNdefSmartCardFmt_t Pointer to a valid instance of the \ref phFriNfc_sNdefSmartCardFmt_t
+ *                             structure describing the component context.
+ * \retval  NFCSTATUS_PENDING   The action has been successfully triggered.
+ * \retval  Other values        An error has occurred.
+ *
+ */
+NFCSTATUS
+phFriNfc_MfUL_ConvertToReadOnly (
+    phFriNfc_sNdefSmtCrdFmt_t    *NdefSmtCrdFmt);
+
+#endif /* #ifdef FRINFC_READONLY_NDEF */
 
 /**
  *\ingroup grp_fri_smart_card_formatting

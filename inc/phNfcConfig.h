@@ -141,7 +141,7 @@
 
 /**< Default Session ID for Initialisation */
 #ifndef DEFAULT_SESSION
-#define DEFAULT_SESSION           "goog4"
+#define DEFAULT_SESSION           "android5"
 #endif
 
 
@@ -309,7 +309,7 @@
  * Initialisation */
 
 #if !defined(NXP_SMX)
-#define NXP_SMX 0
+#define NXP_SMX 1
 #endif
 
 #if (NXP_SMX == 1)
@@ -323,8 +323,7 @@
 /**< Macro to Enable the Peer to Peer Feature */
 #define ENABLE_P2P
 
-#define DEFAULT_NFCIP_MODE_SUPPORT      0x00U // to disable P2P feature
-
+#define DEFAULT_NFCIP_MODE_SUPPORT      0x0FU
 
 /**< Macro to Enable the ISO14443-B Feature */
 #define TYPE_B
@@ -363,12 +362,14 @@
  * to allow the UICC Communication */
 #define HOST_WHITELIST
 
+/**< Support reconnecting to a different handle on the same tag */
+#define RECONNECT_SUPPORT
 
 /**< Macro to Enable the Card Emulation Feature */
 /* #define HOST_EMULATION */
 
 /**< Macro to Enable the Download Mode Feature */
-//#define FW_DOWNLOAD
+#define FW_DOWNLOAD
 
 /**< Macro to Enable the Firmware Download Timer */
 #define FW_DOWNLOAD_TIMER
@@ -377,7 +378,7 @@
 /* #define FW_DOWNLOAD_VERIFY */
 
 #ifndef FW_DOWNLOAD_VERIFY
-#define NXP_FW_INTEGRITY_CHK
+#define NXP_FW_INTEGRITY_CHK    1
 #endif
 
 #define UICC_CONNECTIVITY_PATCH

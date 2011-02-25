@@ -39,6 +39,9 @@ NFCSTATUS static_CheckDevice(phLibNfc_Handle hRemoteDevice);
 STATIC
 void phLibNfc_Llcp_CheckLlcp_Cb(void *pContext,NFCSTATUS status);
 
+STATIC
+void phLibNfc_Llcp_Link_Cb(void *pContext,phLibNfc_Llcp_eLinkStatus_t status);
+
 /* --------------------------- Internal functions ------------------------------ */
 
 STATIC NFCSTATUS static_CheckState()
@@ -67,6 +70,11 @@ STATIC NFCSTATUS static_CheckState()
 STATIC NFCSTATUS static_CheckDevice(phLibNfc_Handle hRemoteDevice)
 {
    phLibNfc_sRemoteDevInformation_t*   psRemoteDevInfo = (phLibNfc_sRemoteDevInformation_t*)hRemoteDevice;
+
+   if (hRemoteDevice == NULL)
+   {
+      return NFCSTATUS_INVALID_PARAMETER;
+   }
 
    /* If local device is the Initiator (remote is Target),
     * check if connection is correct
@@ -144,7 +152,35 @@ NFCSTATUS phLibNfc_Mgt_SetLlcp_ConfigParams( phLibNfc_Llcp_sLinkParameters_t* pC
 
    /* Set the P2P general bytes */
    result = phLibNfc_Mgt_SetP2P_ConfigParams(&sNfcIPCfg, pConfigRspCb, pContext);
-   return PHNFCSTATUS(result);
+   if (result != NFCSTATUS_PENDING)
+   {
+      return PHNFCSTATUS(result);
+   }
+
+   /* Resets the LLCP LLC component */
+   result = phFriNfc_Llcp_Reset( &gpphLibContext->llcp_cntx.sLlcpContext,
+                                 gpphLibContext->psOverHalCtxt,
+                                 pConfigInfo,
+                                 gpphLibContext->llcp_cntx.pRxBuffer,
+                                 sizeof(gpphLibContext->llcp_cntx.pRxBuffer),
+                                 gpphLibContext->llcp_cntx.pTxBuffer,
+                                 sizeof(gpphLibContext->llcp_cntx.pTxBuffer),
+                                 phLibNfc_Llcp_Link_Cb,
+                                 gpphLibContext);
+   if (result != NFCSTATUS_SUCCESS)
+   {
+      return PHNFCSTATUS(result);
+   }
+
+   /* Resets the LLCP Transport component */
+   result = phFriNfc_LlcpTransport_Reset( &gpphLibContext->llcp_cntx.sLlcpTransportContext,
+                                          &gpphLibContext->llcp_cntx.sLlcpContext );
+   if (result != NFCSTATUS_SUCCESS)
+   {
+      return PHNFCSTATUS(result);
+   }
+
+   return NFCSTATUS_PENDING;
 }
 
 NFCSTATUS phLibNfc_Llcp_CheckLlcp( phLibNfc_Handle              hRemoteDevice,
@@ -189,28 +225,12 @@ NFCSTATUS phLibNfc_Llcp_CheckLlcp( phLibNfc_Handle              hRemoteDevice,
       }
    }
 
-   /* Resets the LLCP LLC component */
-   result = phFriNfc_Llcp_Reset( &gpphLibContext->llcp_cntx.sLlcpContext,
-                                 gpphLibContext->psOverHalCtxt,
-                                 &gpphLibContext->llcp_cntx.sLocalParams,
-                                 gpphLibContext->llcp_cntx.pRxBuffer,
-                                 sizeof(gpphLibContext->llcp_cntx.pRxBuffer),
-                                 gpphLibContext->llcp_cntx.pTxBuffer,
-                                 sizeof(gpphLibContext->llcp_cntx.pTxBuffer),
-                                 pLink_Cb,
-                                 pContext);
-   if (result != NFCSTATUS_SUCCESS)
-   {
-      return PHNFCSTATUS(result);
-   }
+   /* Prepare callback */
+   gpphLibContext->CBInfo.pClientLlcpLinkCb = pLink_Cb;
+   gpphLibContext->CBInfo.pClientLlcpLinkCntx = pContext;
 
-   /* Resets the LLCP Transport component */
-   result = phFriNfc_LlcpTransport_Reset( &gpphLibContext->llcp_cntx.sLlcpTransportContext,
-                                          &gpphLibContext->llcp_cntx.sLlcpContext );
-   if (result != NFCSTATUS_SUCCESS)
-   {
-      return result;
-   }
+   // DEBUG: Reset at least the state
+   gpphLibContext->llcp_cntx.sLlcpContext.state = 0;
 
    /* Prepare callback */
    gpphLibContext->CBInfo.pClientLlcpCheckRespCb = pCheckLlcp_RspCb;
@@ -244,6 +264,36 @@ NFCSTATUS phLibNfc_Llcp_CheckLlcp( phLibNfc_Handle              hRemoteDevice,
    }
 
    return result;
+}
+
+/* LLCP link callback */
+STATIC
+void phLibNfc_Llcp_Link_Cb(void *pContext, phLibNfc_Llcp_eLinkStatus_t status)
+{
+   phLibNfc_LibContext_t         *pLibNfc_Ctxt = (phLibNfc_LibContext_t *)pContext;
+   pphLibNfc_LlcpLinkStatusCb_t  pClientCb = NULL;
+   void                          *pClientContext = NULL;
+
+   if(pLibNfc_Ctxt != gpphLibContext)
+   {
+      /*wrong context returned from below layer*/
+      phOsalNfc_RaiseException(phOsalNfc_e_InternalErr,1);
+   }
+   else
+   {
+      /* Close all sockets */
+      phFriNfc_LlcpTransport_CloseAll(&gpphLibContext->llcp_cntx.sLlcpTransportContext);
+
+      /* Copy callback details */
+      pClientCb = gpphLibContext->CBInfo.pClientLlcpLinkCb;
+      pClientContext = gpphLibContext->CBInfo.pClientLlcpLinkCntx;
+
+      /* Trigger the callback */
+      if(pClientCb != NULL)
+      {
+         pClientCb(pClientContext, status);
+      }
+   }
 }
 
 /* Response callback for phLibNfc_Ndef_CheckNdef */
@@ -384,17 +434,9 @@ NFCSTATUS phLibNfc_Llcp_GetLocalInfo( phLibNfc_Handle                  hRemoteDe
    }
 
    /* Parameters checking */
-   if ((hRemoteDevice == 0) ||
-       (pConfigInfo == NULL))
+   if (pConfigInfo == NULL)
    {
       return NFCSTATUS_INVALID_PARAMETER;
-   }
-
-   /* Check device */
-   result = static_CheckDevice(hRemoteDevice);
-   if (result != NFCSTATUS_SUCCESS)
-   {
-      return result;
    }
 
    /* Get local infos */
@@ -436,8 +478,7 @@ NFCSTATUS phLibNfc_Llcp_GetRemoteInfo( phLibNfc_Handle                    hRemot
    return PHNFCSTATUS(result);
 }
 
-NFCSTATUS phLibNfc_Llcp_Socket( phLibNfc_Handle                  hRemoteDevice,
-                                phLibNfc_Llcp_eSocketType_t      eType,
+NFCSTATUS phLibNfc_Llcp_Socket( phLibNfc_Llcp_eSocketType_t      eType,
                                 phLibNfc_Llcp_sSocketOptions_t*  psOptions,
                                 phNfc_sData_t*                   psWorkingBuffer,
                                 phLibNfc_Handle*                 phSocket,
@@ -457,18 +498,10 @@ NFCSTATUS phLibNfc_Llcp_Socket( phLibNfc_Handle                  hRemoteDevice,
 
    /* Parameters checking */
    /* NOTE: Transport Layer test psOption and psWorkingBuffer value */
-   if ((hRemoteDevice == 0)      ||
-       (phSocket == NULL)        ||
+   if ((phSocket == NULL)        ||
        (pErr_Cb == NULL))
    {
       return NFCSTATUS_INVALID_PARAMETER;
-   }
-
-   /* Check device */
-   result = static_CheckDevice(hRemoteDevice);
-   if (result != NFCSTATUS_SUCCESS)
-   {
-      return result;
    }
 
    /* Get local infos */
@@ -505,6 +538,7 @@ NFCSTATUS phLibNfc_Llcp_Close( phLibNfc_Handle hSocket )
    }
 
    /* Get local infos */
+   /* TODO: if connected abort and close else close only */
    result = phFriNfc_LlcpTransport_Close(psSocket);
 
    return PHNFCSTATUS(result);
@@ -537,12 +571,15 @@ NFCSTATUS phLibNfc_Llcp_SocketGetLocalOptions( phLibNfc_Handle                  
    return PHNFCSTATUS(result);
 }
 
-NFCSTATUS phLibNfc_Llcp_SocketGetRemoteOptions( phLibNfc_Handle                  hSocket,
+NFCSTATUS phLibNfc_Llcp_SocketGetRemoteOptions( phLibNfc_Handle                  hRemoteDevice,
+                                                phLibNfc_Handle                  hSocket,
                                                 phLibNfc_Llcp_sSocketOptions_t*  psRemoteOptions
                                                 )
 {
    NFCSTATUS                        result;
    phFriNfc_LlcpTransport_Socket_t  *psSocket = (phFriNfc_LlcpTransport_Socket_t*)hSocket;
+
+   LLCP_PRINT("phLibNfc_Llcp_SocketGetRemoteOptions");
 
    /* State checking */
    result = static_CheckState();
@@ -552,10 +589,18 @@ NFCSTATUS phLibNfc_Llcp_SocketGetRemoteOptions( phLibNfc_Handle                 
    }
 
    /* Parameters checking */
-   if ((hSocket == 0) ||
+   if ((hRemoteDevice == 0) ||
+       (hSocket == 0)       ||
        (psRemoteOptions == NULL))
    {
       return NFCSTATUS_INVALID_PARAMETER;
+   }
+
+   /* Check device */
+   result = static_CheckDevice(hRemoteDevice);
+   if (result != NFCSTATUS_SUCCESS)
+   {
+      return result;
    }
 
    /* Get remote infos */
@@ -570,6 +615,8 @@ NFCSTATUS phLibNfc_Llcp_Bind( phLibNfc_Handle hSocket,
 {
    NFCSTATUS                        result;
    phFriNfc_LlcpTransport_Socket_t  *psSocket = (phFriNfc_LlcpTransport_Socket_t*)hSocket;
+
+   LLCP_PRINT("phLibNfc_Llcp_Bind");
 
    /* State checking */
    result = static_CheckState();
@@ -598,6 +645,8 @@ NFCSTATUS phLibNfc_Llcp_Listen( phLibNfc_Handle                  hSocket,
 {
    NFCSTATUS                        result;
    phFriNfc_LlcpTransport_Socket_t  *psSocket = (phFriNfc_LlcpTransport_Socket_t*)hSocket;
+
+   LLCP_PRINT("phLibNfc_Llcp_Listen");
 
    /* State checking */
    result = static_CheckState();
@@ -634,6 +683,8 @@ NFCSTATUS phLibNfc_Llcp_Accept( phLibNfc_Handle                  hSocket,
    NFCSTATUS                        result;
    phFriNfc_LlcpTransport_Socket_t  *psSocket = (phFriNfc_LlcpTransport_Socket_t*)hSocket;
 
+   LLCP_PRINT("phLibNfc_Llcp_Accept");
+
    /* State checking */
    result = static_CheckState();
    if (result != NFCSTATUS_SUCCESS)
@@ -662,13 +713,16 @@ NFCSTATUS phLibNfc_Llcp_Accept( phLibNfc_Handle                  hSocket,
    return PHNFCSTATUS(result);
 }
 
-NFCSTATUS phLibNfc_Llcp_Reject( phLibNfc_Handle                  hSocket,
+NFCSTATUS phLibNfc_Llcp_Reject( phLibNfc_Handle                  hRemoteDevice,
+                                phLibNfc_Handle                  hSocket,
                                 pphLibNfc_LlcpSocketRejectCb_t   pReject_RspCb,
                                 void*                            pContext
                                 )
 {
    NFCSTATUS                        result;
    phFriNfc_LlcpTransport_Socket_t  *psSocket = (phFriNfc_LlcpTransport_Socket_t*)hSocket;
+
+   LLCP_PRINT("phLibNfc_Llcp_Reject");
 
    /* State checking */
    result = static_CheckState();
@@ -678,10 +732,18 @@ NFCSTATUS phLibNfc_Llcp_Reject( phLibNfc_Handle                  hSocket,
    }
 
    /* Parameters checking */
-   if ((hSocket == 0)            ||
+   if ((hRemoteDevice == 0)      ||
+       (hSocket == 0)            ||
        (pReject_RspCb == NULL))
    {
       return NFCSTATUS_INVALID_PARAMETER;
+   }
+
+   /* Check device */
+   result = static_CheckDevice(hRemoteDevice);
+   if (result != NFCSTATUS_SUCCESS)
+   {
+      return result;
    }
 
    /* Reject incoming connection */
@@ -692,7 +754,8 @@ NFCSTATUS phLibNfc_Llcp_Reject( phLibNfc_Handle                  hSocket,
    return PHNFCSTATUS(result);
 }
 
-NFCSTATUS phLibNfc_Llcp_Connect( phLibNfc_Handle                 hSocket,
+NFCSTATUS phLibNfc_Llcp_Connect( phLibNfc_Handle                 hRemoteDevice,
+                                 phLibNfc_Handle                 hSocket,
                                  uint8_t                         nSap,
                                  pphLibNfc_LlcpSocketConnectCb_t pConnect_RspCb,
                                  void*                           pContext
@@ -700,6 +763,8 @@ NFCSTATUS phLibNfc_Llcp_Connect( phLibNfc_Handle                 hSocket,
 {
    NFCSTATUS                        result;
    phFriNfc_LlcpTransport_Socket_t  *psSocket = (phFriNfc_LlcpTransport_Socket_t*)hSocket;
+
+   LLCP_PRINT("phLibNfc_Llcp_Connect");
 
    /* State checking */
    result = static_CheckState();
@@ -709,10 +774,19 @@ NFCSTATUS phLibNfc_Llcp_Connect( phLibNfc_Handle                 hSocket,
    }
 
    /* Parameters checking */
-   if ((hSocket == 0)            ||
+   if ((hRemoteDevice == 0)      ||
+	   (hSocket == 0)            ||
        (pConnect_RspCb == NULL))
    {
+      LLCP_PRINT("phLibNfc_Llcp_Connect NFCSTATUS_INVALID_PARAMETER");
       return NFCSTATUS_INVALID_PARAMETER;
+   }
+
+   /* Check device */
+   result = static_CheckDevice(hRemoteDevice);
+   if (result != NFCSTATUS_SUCCESS)
+   {
+      return result;
    }
 
    /* Try to connect on a remote service, given its SAP */
@@ -724,7 +798,8 @@ NFCSTATUS phLibNfc_Llcp_Connect( phLibNfc_Handle                 hSocket,
    return PHNFCSTATUS(result);
 }
 
-NFCSTATUS phLibNfc_Llcp_ConnectByUri( phLibNfc_Handle                 hSocket,
+NFCSTATUS phLibNfc_Llcp_ConnectByUri( phLibNfc_Handle                 hRemoteDevice,
+                                      phLibNfc_Handle                 hSocket,
                                       phNfc_sData_t*                  psUri,
                                       pphLibNfc_LlcpSocketConnectCb_t pConnect_RspCb,
                                       void*                           pContext
@@ -732,6 +807,8 @@ NFCSTATUS phLibNfc_Llcp_ConnectByUri( phLibNfc_Handle                 hSocket,
 {
    NFCSTATUS                        result;
    phFriNfc_LlcpTransport_Socket_t  *psSocket = (phFriNfc_LlcpTransport_Socket_t*)hSocket;
+
+   LLCP_PRINT("phLibNfc_Llcp_ConnectByUri");
 
    /* State checking */
    result = static_CheckState();
@@ -741,11 +818,20 @@ NFCSTATUS phLibNfc_Llcp_ConnectByUri( phLibNfc_Handle                 hSocket,
    }
 
    /* Parameters checking */
-   if ((hSocket == 0)            ||
+   if ((hRemoteDevice == 0)      ||
+       (hSocket == 0)            ||
        (psUri   == NULL)         ||
        (pConnect_RspCb == NULL))
    {
+      LLCP_PRINT("phLibNfc_Llcp_ConnectByUri NFCSTATUS_INVALID_PARAMETER");
       return NFCSTATUS_INVALID_PARAMETER;
+   }
+
+   /* Check device */
+   result = static_CheckDevice(hRemoteDevice);
+   if (result != NFCSTATUS_SUCCESS)
+   {
+      return result;
    }
 
    /* Try to connect on a remote service, using SDP */
@@ -757,13 +843,16 @@ NFCSTATUS phLibNfc_Llcp_ConnectByUri( phLibNfc_Handle                 hSocket,
    return PHNFCSTATUS(result);
 }
 
-NFCSTATUS phLibNfc_Llcp_Disconnect( phLibNfc_Handle                    hSocket,
+NFCSTATUS phLibNfc_Llcp_Disconnect( phLibNfc_Handle                    hRemoteDevice,
+                                    phLibNfc_Handle                    hSocket,
                                     pphLibNfc_LlcpSocketDisconnectCb_t pDisconnect_RspCb,
                                     void*                              pContext
                                     )
 {
    NFCSTATUS                        result;
    phFriNfc_LlcpTransport_Socket_t  *psSocket = (phFriNfc_LlcpTransport_Socket_t*)hSocket;
+
+   LLCP_PRINT("phLibNfc_Llcp_Disconnect");
 
    /* State checking */
    result = static_CheckState();
@@ -773,10 +862,18 @@ NFCSTATUS phLibNfc_Llcp_Disconnect( phLibNfc_Handle                    hSocket,
    }
 
    /* Parameters checking */
-   if ((hSocket == 0) ||
+   if ((hRemoteDevice == 0) ||
+       (hSocket == 0)       ||
        (pDisconnect_RspCb == NULL))
    {
       return NFCSTATUS_INVALID_PARAMETER;
+   }
+
+   /* Check device */
+   result = static_CheckDevice(hRemoteDevice);
+   if (result != NFCSTATUS_SUCCESS)
+   {
+      return result;
    }
 
    /* Disconnect a logical link */
@@ -787,7 +884,8 @@ NFCSTATUS phLibNfc_Llcp_Disconnect( phLibNfc_Handle                    hSocket,
    return PHNFCSTATUS(result);
 }
 
-NFCSTATUS phLibNfc_Llcp_Recv( phLibNfc_Handle              hSocket,
+NFCSTATUS phLibNfc_Llcp_Recv( phLibNfc_Handle              hRemoteDevice,
+                              phLibNfc_Handle              hSocket,
                               phNfc_sData_t*               psBuffer,
                               pphLibNfc_LlcpSocketRecvCb_t pRecv_RspCb,
                               void*                        pContext
@@ -795,6 +893,8 @@ NFCSTATUS phLibNfc_Llcp_Recv( phLibNfc_Handle              hSocket,
 {
    NFCSTATUS                        result;
    phFriNfc_LlcpTransport_Socket_t  *psSocket = (phFriNfc_LlcpTransport_Socket_t*)hSocket;
+
+   LLCP_PRINT("phLibNfc_Llcp_Recv");
 
    /* State checking */
    result = static_CheckState();
@@ -804,11 +904,19 @@ NFCSTATUS phLibNfc_Llcp_Recv( phLibNfc_Handle              hSocket,
    }
 
    /* Parameters checking */
-   if ((hSocket == 0)     ||
-       (psBuffer == NULL) ||
+   if ((hRemoteDevice == 0)   ||
+       (hSocket == 0)         ||
+       (psBuffer == NULL)     ||
        (pRecv_RspCb == NULL))
    {
       return NFCSTATUS_INVALID_PARAMETER;
+   }
+
+   /* Check device */
+   result = static_CheckDevice(hRemoteDevice);
+   if (result != NFCSTATUS_SUCCESS)
+   {
+      return result;
    }
 
    /* Receive data from the logical link */
@@ -820,7 +928,8 @@ NFCSTATUS phLibNfc_Llcp_Recv( phLibNfc_Handle              hSocket,
    return PHNFCSTATUS(result);
 }
 
-NFCSTATUS phLibNfc_Llcp_RecvFrom( phLibNfc_Handle                   hSocket,
+NFCSTATUS phLibNfc_Llcp_RecvFrom( phLibNfc_Handle                   hRemoteDevice,
+                                  phLibNfc_Handle                   hSocket,
                                   phNfc_sData_t*                    psBuffer,
                                   pphLibNfc_LlcpSocketRecvFromCb_t  pRecv_Cb,
                                   void*                             pContext
@@ -828,6 +937,8 @@ NFCSTATUS phLibNfc_Llcp_RecvFrom( phLibNfc_Handle                   hSocket,
 {
    NFCSTATUS                        result;
    phFriNfc_LlcpTransport_Socket_t  *psSocket = (phFriNfc_LlcpTransport_Socket_t*)hSocket;
+
+   LLCP_PRINT("phLibNfc_Llcp_RecvFrom");
 
    /* State checking */
    result = static_CheckState();
@@ -837,11 +948,19 @@ NFCSTATUS phLibNfc_Llcp_RecvFrom( phLibNfc_Handle                   hSocket,
    }
 
    /* Parameters checking */
-   if ((hSocket == 0)     ||
-       (psBuffer == NULL) ||
+   if ((hRemoteDevice == 0)   ||
+       (hSocket == 0)         ||
+       (psBuffer == NULL)     ||
        (pRecv_Cb == NULL))
    {
       return NFCSTATUS_INVALID_PARAMETER;
+   }
+
+   /* Check device */
+   result = static_CheckDevice(hRemoteDevice);
+   if (result != NFCSTATUS_SUCCESS)
+   {
+      return result;
    }
 
    /* Receive data from the logical link */
@@ -853,7 +972,8 @@ NFCSTATUS phLibNfc_Llcp_RecvFrom( phLibNfc_Handle                   hSocket,
    return PHNFCSTATUS(result);
 }
 
-NFCSTATUS phLibNfc_Llcp_Send( phLibNfc_Handle              hSocket,
+NFCSTATUS phLibNfc_Llcp_Send( phLibNfc_Handle              hRemoteDevice,
+                              phLibNfc_Handle              hSocket,
                               phNfc_sData_t*               psBuffer,
                               pphLibNfc_LlcpSocketSendCb_t pSend_RspCb,
                               void*                        pContext
@@ -861,6 +981,8 @@ NFCSTATUS phLibNfc_Llcp_Send( phLibNfc_Handle              hSocket,
 {
    NFCSTATUS                        result;
    phFriNfc_LlcpTransport_Socket_t  *psSocket = (phFriNfc_LlcpTransport_Socket_t*)hSocket;
+
+   LLCP_PRINT("phLibNfc_Llcp_Send");
 
    /* State checking */
    result = static_CheckState();
@@ -870,11 +992,19 @@ NFCSTATUS phLibNfc_Llcp_Send( phLibNfc_Handle              hSocket,
    }
 
    /* Parameters checking */
-   if ((hSocket == 0)     ||
-       (psBuffer == NULL) ||
+   if ((hRemoteDevice == 0)   ||
+       (hSocket == 0)         ||
+       (psBuffer == NULL)     ||
        (pSend_RspCb == NULL))
    {
       return NFCSTATUS_INVALID_PARAMETER;
+   }
+
+   /* Check device */
+   result = static_CheckDevice(hRemoteDevice);
+   if (result != NFCSTATUS_SUCCESS)
+   {
+      return result;
    }
 
    /* Send data to the logical link */
@@ -886,7 +1016,8 @@ NFCSTATUS phLibNfc_Llcp_Send( phLibNfc_Handle              hSocket,
    return PHNFCSTATUS(result);
 }
 
-NFCSTATUS phLibNfc_Llcp_SendTo( phLibNfc_Handle               hSocket,
+NFCSTATUS phLibNfc_Llcp_SendTo( phLibNfc_Handle               hRemoteDevice,
+                                phLibNfc_Handle               hSocket,
                                 uint8_t                       nSap,
                                 phNfc_sData_t*                psBuffer,
                                 pphLibNfc_LlcpSocketSendCb_t  pSend_RspCb,
@@ -896,6 +1027,8 @@ NFCSTATUS phLibNfc_Llcp_SendTo( phLibNfc_Handle               hSocket,
    NFCSTATUS                        result;
    phFriNfc_LlcpTransport_Socket_t  *psSocket = (phFriNfc_LlcpTransport_Socket_t*)hSocket;
 
+   LLCP_PRINT("phLibNfc_Llcp_SendTo");
+
    /* State checking */
    result = static_CheckState();
    if (result != NFCSTATUS_SUCCESS)
@@ -904,11 +1037,19 @@ NFCSTATUS phLibNfc_Llcp_SendTo( phLibNfc_Handle               hSocket,
    }
 
    /* Parameters checking */
-   if ((hSocket == 0)     ||
-       (psBuffer == NULL) ||
+   if ((hRemoteDevice == 0)   ||
+       (hSocket == 0)         ||
+       (psBuffer == NULL)     ||
        (pSend_RspCb == NULL))
    {
       return NFCSTATUS_INVALID_PARAMETER;
+   }
+
+   /* Check device */
+   result = static_CheckDevice(hRemoteDevice);
+   if (result != NFCSTATUS_SUCCESS)
+   {
+      return result;
    }
 
    /* Send data to the logical link */

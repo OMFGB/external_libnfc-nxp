@@ -172,12 +172,18 @@ STATIC void phLibNfc_SeNotification(void  *context,
                 {
                     case NFC_EVT_TRANSACTION:
                     {
-                        if(pEvtInfo->eventInfo.aid.length != 0)
+                        if((pEvtInfo->eventInfo.aid.length != 0) && ((pEvtInfo->eventInfo.aid.length <= 16)))  // PLG
                         {
                             /*copy the Application id on which transaction happened*/                        
 							Se_Trans_Info.UiccEvtInfo.aid.buffer =pEvtInfo->eventInfo.aid.buffer;
 							Se_Trans_Info.UiccEvtInfo.aid.length =pEvtInfo->eventInfo.aid.length;
                         }
+						else
+						{
+							// PLG patch
+                            Se_Trans_Info.UiccEvtInfo.aid.buffer = NULL;
+							Se_Trans_Info.UiccEvtInfo.aid.length = 0;
+						}
 						if((pEvtInfo->eventHost == phHal_eUICCHost)
                            && (info.psEventInfo->eventInfo.uicc_info.param.length
                                 != 0))
@@ -207,8 +213,8 @@ STATIC void phLibNfc_SeNotification(void  *context,
                             &Se_Trans_Info,
                             status);
                         break;
-                    }					
-					case NFC_EVT_CONNECTIVITY:
+                    }
+                    case NFC_EVT_CONNECTIVITY:
                     {
                         (*pLibContext->sSeContext.sSeCallabackInfo.pSeListenerNtfCb)(
                             pLibContext->sSeContext.sSeCallabackInfo.pSeListenerCtxt,
@@ -217,8 +223,37 @@ STATIC void phLibNfc_SeNotification(void  *context,
                             &Se_Trans_Info,
                             status);
                         break;
-                    }	
+                    }
                     case NFC_EVT_START_OF_TRANSACTION:
+                    {
+                        (*pLibContext->sSeContext.sSeCallabackInfo.pSeListenerNtfCb)(
+                            pLibContext->sSeContext.sSeCallabackInfo.pSeListenerCtxt,
+                            phLibNfc_eSE_EvtTypeTransaction,
+                            pSeInfo->hSecureElement,
+                            &Se_Trans_Info,
+                            status);
+                        break;
+                    }
+                    case NFC_EVT_FIELD_ON:
+                    {
+                        (*pLibContext->sSeContext.sSeCallabackInfo.pSeListenerNtfCb)(
+                            pLibContext->sSeContext.sSeCallabackInfo.pSeListenerCtxt,
+                            phLibNfc_eSE_EvtFieldOn,
+                            pSeInfo->hSecureElement,
+                            &Se_Trans_Info,
+                            status);
+                        break;
+                    }
+                    case NFC_EVT_FIELD_OFF:
+                    {
+                        (*pLibContext->sSeContext.sSeCallabackInfo.pSeListenerNtfCb)(
+                             pLibContext->sSeContext.sSeCallabackInfo.pSeListenerCtxt,
+                             phLibNfc_eSE_EvtFieldOff,
+                             pSeInfo->hSecureElement,
+                             &Se_Trans_Info,
+                             status);
+                        break;
+                    }
                     default:
                     {
                         break;

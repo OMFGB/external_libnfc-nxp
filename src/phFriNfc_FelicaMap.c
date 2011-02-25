@@ -2218,16 +2218,7 @@ static NFCSTATUS   phFriNfc_Felica_HUpdateManufIdDetails(const phFriNfc_NdefMap_
     (void)memcpy( (uint8_t *)(NdefMap->FelicaManufDetails.ManufParameter),
                 (uint8_t *)NdefMap->psRemoteDevInfo->RemoteDevInfo.Felica_Info.PMm,
                 8);
-    if((NdefMap->psRemoteDevInfo->RemoteDevInfo.Felica_Info.SystemCode[0] == 0x12)
-        && (NdefMap->psRemoteDevInfo->RemoteDevInfo.Felica_Info.SystemCode[1] == 0xFC))
-    {
-        status = PHNFCSTVAL(CID_NFC_NONE, NFCSTATUS_SUCCESS);
-    }
-    else
-    {
-         status = PHNFCSTVAL(CID_FRI_NFC_NDEF_MAP,
-                                        NFCSTATUS_NO_NDEF_SUPPORT);
-    }
+		status = PHNFCSTVAL(CID_NFC_NONE, NFCSTATUS_SUCCESS);
 #else            
 
     
@@ -2952,9 +2943,13 @@ static NFCSTATUS   phFriNfc_Felica_HUpdateAttrInfo(phFriNfc_NdefMap_t *NdefMap)
                             {
                                 NdefMap->CardState = PH_NDEFMAP_CARD_STATE_READ_ONLY;
                             }
-                            else
+                            else if ( NdefMap->FelicaAttrInfo.RdWrFlag == 0x01 ) // additional check for R/W access
                             {
                                 NdefMap->CardState = PH_NDEFMAP_CARD_STATE_READ_WRITE;
+                            }
+                            else // otherwise invalid
+                            {
+                                NdefMap->CardState = PH_NDEFMAP_CARD_STATE_INVALID;
                             }
                             
                             NdefMap->FelicaAttrInfo.LenBytes[0] = NdefMap->SendRecvBuf[24];

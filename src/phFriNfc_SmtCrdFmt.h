@@ -20,10 +20,10 @@
  *
  * Project: NFC-FRI
  *
- * $Date: Fri Feb 20 14:38:17 2009 $
- * $Author: ing07385 $
- * $Revision: 1.3 $
- * $Aliases: NFC_FRI1.1_WK908_R19_1,NFC_FRI1.1_WK910_PREP1,NFC_FRI1.1_WK910_R20_1,NFC_FRI1.1_WK912_PREP1,NFC_FRI1.1_WK912_R21_1,NFC_FRI1.1_WK914_PREP1,NFC_FRI1.1_WK914_R22_1,NFC_FRI1.1_WK914_R22_2,NFC_FRI1.1_WK916_R23_1,NFC_FRI1.1_WK918_R24_1,NFC_FRI1.1_WK920_PREP1,NFC_FRI1.1_WK920_R25_1,NFC_FRI1.1_WK922_PREP1,NFC_FRI1.1_WK922_R26_1,NFC_FRI1.1_WK924_PREP1,NFC_FRI1.1_WK924_R27_1,NFC_FRI1.1_WK926_R28_1,NFC_FRI1.1_WK928_R29_1,NFC_FRI1.1_WK930_R30_1,NFC_FRI1.1_WK934_PREP_1,NFC_FRI1.1_WK934_R31_1,NFC_FRI1.1_WK941_PREP1,NFC_FRI1.1_WK941_PREP2,NFC_FRI1.1_WK941_1,NFC_FRI1.1_WK943_R32_1,NFC_FRI1.1_WK949_PREP1,NFC_FRI1.1_WK943_R32_10,NFC_FRI1.1_WK943_R32_13,NFC_FRI1.1_WK943_R32_14,NFC_FRI1.1_WK1007_R33_1,NFC_FRI1.1_WK1007_R33_4,NFC_FRI1.1_WK1017_PREP1,NFC_FRI1.1_WK1017_R34_1,NFC_FRI1.1_WK1017_R34_2,NFC_FRI1.1_WK1023_R35_1 $
+ * $Date: Mon Dec 13 14:14:11 2010 $
+ * $Author: ing02260 $
+ * $Revision: 1.5 $
+ * $Aliases:  $
  *
  */
 
@@ -37,8 +37,8 @@
  *
  */
 /*@{*/
-#define PHFRINFC_SMTCRDFMT_FILEREVISION "$Revision: 1.3 $"
-#define PHFRINFC_SMTCRDFMT_FILEALIASES  "$Aliases: NFC_FRI1.1_WK908_R19_1,NFC_FRI1.1_WK910_PREP1,NFC_FRI1.1_WK910_R20_1,NFC_FRI1.1_WK912_PREP1,NFC_FRI1.1_WK912_R21_1,NFC_FRI1.1_WK914_PREP1,NFC_FRI1.1_WK914_R22_1,NFC_FRI1.1_WK914_R22_2,NFC_FRI1.1_WK916_R23_1,NFC_FRI1.1_WK918_R24_1,NFC_FRI1.1_WK920_PREP1,NFC_FRI1.1_WK920_R25_1,NFC_FRI1.1_WK922_PREP1,NFC_FRI1.1_WK922_R26_1,NFC_FRI1.1_WK924_PREP1,NFC_FRI1.1_WK924_R27_1,NFC_FRI1.1_WK926_R28_1,NFC_FRI1.1_WK928_R29_1,NFC_FRI1.1_WK930_R30_1,NFC_FRI1.1_WK934_PREP_1,NFC_FRI1.1_WK934_R31_1,NFC_FRI1.1_WK941_PREP1,NFC_FRI1.1_WK941_PREP2,NFC_FRI1.1_WK941_1,NFC_FRI1.1_WK943_R32_1,NFC_FRI1.1_WK949_PREP1,NFC_FRI1.1_WK943_R32_10,NFC_FRI1.1_WK943_R32_13,NFC_FRI1.1_WK943_R32_14,NFC_FRI1.1_WK1007_R33_1,NFC_FRI1.1_WK1007_R33_4,NFC_FRI1.1_WK1017_PREP1,NFC_FRI1.1_WK1017_R34_1,NFC_FRI1.1_WK1017_R34_2,NFC_FRI1.1_WK1023_R35_1 $"
+#define PHFRINFC_SMTCRDFMT_FILEREVISION "$Revision: 1.5 $"
+#define PHFRINFC_SMTCRDFMT_FILEALIASES  "$Aliases:  $"
 /*@}*/
 
 /*! \defgroup grp_fri_smart_card_formatting NFC FRI Smart Card Formatting
@@ -60,6 +60,9 @@
           On requirement basis, new constants will be defined
           during the implementation phase.
 */
+
+#define DESFIRE_FMT_EV1
+
 
 #define PH_FRI_NFC_SMTCRDFMT_NFCSTATUS_FORMAT_ERROR                 9
 #define  PH_FRINFC_SMTCRDFMT_MSTD_DEFAULT_KEYA_OR_KEYB           {0xFF, 0xFF,0xFF,0xFF,0xFF,0xFF}
@@ -139,6 +142,23 @@ typedef struct phFriNfc_Type2_AddInfo
 {
     /* Stores the CC byte values. For Ex: 0xE1, 0x10 , 0x10, 0x00*/
    uint8_t OTPBytes[4];
+#ifdef FRINFC_READONLY_NDEF
+   uint8_t  LockBytes[4];
+
+#ifdef PH_NDEF_MIFARE_ULC
+   uint8_t  ReadData[16];
+   uint8_t  ReadDataIndex;
+   uint8_t  DynLockBytes[4];
+   uint8_t  BytesLockedPerLockBit;
+   uint8_t  LockBytesPerPage;
+   uint8_t  LockByteNumber;
+   uint8_t  LockBlockNumber;
+   uint8_t  NoOfLockBits;
+   uint8_t  DefaultLockBytesFlag;
+   uint8_t  LockBitsWritten;
+#endif /* #ifdef PH_NDEF_MIFARE_ULC */
+
+#endif /* #ifdef FRINFC_READONLY_NDEF */
    /* Current Block Address*/
    uint8_t CurrentBlock;
 } phFriNfc_Type2_AddInfo_t;
@@ -153,6 +173,7 @@ typedef struct phFriNfc_Type2_AddInfo
  *         during the implementation phase.
  *
  */
+
 typedef struct phFriNfc_Type4_AddInfo
 {              
     /* Specifies Keys related to PICC/NFCForum Master Key settings*/
@@ -167,7 +188,6 @@ typedef struct phFriNfc_Type4_AddInfo
     uint16_t        MajorVersion;
     uint16_t        MinorVersion;
 
-        
 } phFriNfc_Type4_AddInfo_t;
 
 /*
@@ -397,6 +417,30 @@ NFCSTATUS phFriNfc_NdefSmtCrd_SetCR(phFriNfc_sNdefSmtCrdFmt_t     *NdefSmtCrdFmt
  *
  */
 NFCSTATUS phFriNfc_NdefSmtCrd_Format(phFriNfc_sNdefSmtCrdFmt_t *NdefSmtCrdFmt, const uint8_t *ScrtKeyB);
+
+
+#ifdef FRINFC_READONLY_NDEF
+/*!
+ * \ingroup grp_fri_smart_card_formatting
+ *
+ * \brief Initiates the conversion of the already NDEF formatted tag to READ ONLY.
+ *
+ * \copydoc page_ovr  The function initiates the conversion of the already NDEF formatted
+ * tag to READ ONLY.After this formation, remote card would be properly Ndef Compliant and READ ONLY.
+ * Depending upon the different card type, this function handles formatting procedure.
+ * This function supports only for the DESFIRE, MIFARE UL and TOPAZ tags.
+ *
+ * \param[in] phFriNfc_sNdefSmtCrdFmt_t Pointer to a valid instance of the \ref phFriNfc_sNdefSmartCardFmt_t
+ *                             structure describing the component context.
+ * \retval  NFCSTATUS_PENDING   The action has been successfully triggered.
+ * \retval  Other values        An error has occurred.
+ *
+ */
+NFCSTATUS
+phFriNfc_NdefSmtCrd_ConvertToReadOnly (
+    phFriNfc_sNdefSmtCrdFmt_t *NdefSmtCrdFmt);
+
+#endif /* #ifdef FRINFC_READONLY_NDEF */
 
 
 /**
