@@ -30,6 +30,7 @@
 
 #include <unistd.h>
 #include <pthread.h>
+#include <stdlib.h>
 #ifdef ANDROID
 #include <linux/ipc.h>
 #else
@@ -660,6 +661,7 @@ int phDal4Nfc_ReaderThread(void * pArg)
     phDal4Nfc_Message_t      sMsg;
     phOsalNfc_Message_t      OsalMsg ;
     int i;
+    int i2c_error_count;
 
     pthread_setname_np(pthread_self(), "reader");
 
@@ -676,13 +678,38 @@ int phDal4Nfc_ReaderThread(void * pArg)
         sem_wait(&nfc_read_sem);
         DAL_PRINT("RX Thread Sem UnLock\n");
         /* Issue read operation.*/
+
+    i2c_error_count = 0;
+retry:
 	gReadWriteContext.nNbOfBytesRead=0;
 	DAL_DEBUG("\n*New *** *****Request Length = %d",gReadWriteContext.nNbOfBytesToRead);
 	memsetRet=memset(gReadWriteContext.pReadBuffer,0,gReadWriteContext.nNbOfBytesToRead);
 
 	/* Wait for IRQ !!!  */
-	gReadWriteContext.nNbOfBytesRead = gLinkFunc.read(gReadWriteContext.pReadBuffer, gReadWriteContext.nNbOfBytesToRead);
-        
+    gReadWriteContext.nNbOfBytesRead = gLinkFunc.read(gReadWriteContext.pReadBuffer, gReadWriteContext.nNbOfBytesToRead);
+
+    /* TODO: Remove this hack
+     * Reading the value 0x57 indicates a HW I2C error at I2C address 0x57
+     * (pn544). There should not be false positives because a read of length 1
+     * must be a HCI length read, and a length of 0x57 is impossible (max is 33).
+     */
+    if(gReadWriteContext.nNbOfBytesToRead == 1 && gReadWriteContext.pReadBuffer[0] == 0x57)
+    {
+        i2c_error_count++;
+        DAL_DEBUG("Read 0x57 %d times\n", i2c_error_count);
+        if (i2c_error_count < 5) {
+            usleep(2000);
+            goto retry;
+        }
+        DAL_PRINT("NOTHING TO READ, RECOVER");
+        phOsalNfc_RaiseException(phOsalNfc_e_UnrecovFirmwareErr,1);
+    }
+    else
+    {
+        i2c_error_count = 0;
+#ifdef LOW_LEVEL_TRACES
+        phOsalNfc_PrintData("Received buffer", (uint16_t)gReadWriteContext.nNbOfBytesRead, gReadWriteContext.pReadBuffer);
+#endif
         DAL_DEBUG("Read ok. nbToRead=%d\n", gReadWriteContext.nNbOfBytesToRead);
         DAL_DEBUG("NbReallyRead=%d\n", gReadWriteContext.nNbOfBytesRead);
         DAL_PRINT("ReadBuff[]={ ");
@@ -691,17 +718,16 @@ int phDal4Nfc_ReaderThread(void * pArg)
           DAL_DEBUG("0x%x ", gReadWriteContext.pReadBuffer[i]);
         }
         DAL_PRINT("}\n");
-	
+
         /* read completed immediately */
-	sMsg.eMsgType= PHDAL4NFC_READ_MESSAGE;
-	/* Update the state */
-	phDal4Nfc_FillMsg(&sMsg,&OsalMsg);
-	phDal4Nfc_DeferredCall((pphDal4Nfc_DeferFuncPointer_t)phDal4Nfc_DeferredCb,(void *)pmsgType);
-	memsetRet=memset(&sMsg,0,sizeof(phDal4Nfc_Message_t));
-	memsetRet=memset(&OsalMsg,0,sizeof(phOsalNfc_Message_t));
+        sMsg.eMsgType= PHDAL4NFC_READ_MESSAGE;
+        /* Update the state */
+        phDal4Nfc_FillMsg(&sMsg,&OsalMsg);
+        phDal4Nfc_DeferredCall((pphDal4Nfc_DeferFuncPointer_t)phDal4Nfc_DeferredCb,(void *)pmsgType);
+        memsetRet=memset(&sMsg,0,sizeof(phDal4Nfc_Message_t));
+        memsetRet=memset(&OsalMsg,0,sizeof(phOsalNfc_Message_t));
+    }
 
-
-        
     } /* End of thread Loop*/
     return TRUE;
 }
@@ -824,9 +850,15 @@ void phDal4Nfc_DeferredCb (void  *params)
             break;
         case PHDAL4NFC_WRITE_MESSAGE:
             DAL_PRINT(" Dal deferred write called \n");
+
+#ifdef LOW_LEVEL_TRACES
+            phOsalNfc_PrintData("Send buffer", (uint16_t)gReadWriteContext.nNbOfBytesToWrite, gReadWriteContext.pWriteBuffer);
+#endif
+
             /* DAL_DEBUG("dalMsg->transactInfo.length : %d\n", dalMsg->transactInfo.length); */
             /* Make a Physical WRITE */
-            usleep(3000); /* Wait 3ms before issuing a Write */
+            /* NOTE: need to usleep(3000) here if the write is for SWP */
+            usleep(500);  /* NXP advise 500us sleep required between I2C writes */
             gReadWriteContext.nNbOfBytesWritten = gLinkFunc.write(gReadWriteContext.pWriteBuffer, gReadWriteContext.nNbOfBytesToWrite);
             if (gReadWriteContext.nNbOfBytesWritten != gReadWriteContext.nNbOfBytesToWrite)
             {
